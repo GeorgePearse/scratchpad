@@ -65,7 +65,16 @@ public enum Prompt {
     - Sketches and doodles that are not diagram elements stay as ink.
     - Often there is nothing to do. An empty list of ops is then the right answer.
 
-    Reply with the JSON object only.
+    ## Reply format
+
+    Reply with the JSON object only. Every op carries every field. Fill in the ones that op uses \
+    and leave the rest at "" for text and ids, 0 for numbers, and any allowed value for `shape`, \
+    `color` and `style`; unused fields are ignored.
+
+    - `node` uses id, shape, x, y, w, h, label, color.
+    - `edge` uses id, from, to, label, style.
+    - `delete` uses id.
+    - `erase` uses x, y, w, h.
     """
 
     /// The per-pass text that accompanies the image.
@@ -124,8 +133,11 @@ public enum Prompt {
         return String(decoding: data, as: UTF8.self)
     }
 
-    /// JSON Schema for the reply. Every object is closed and every field required, which is what
-    /// constrained decoding needs; optionality is expressed with "" and "default" instead.
+    /// JSON Schema for the reply.
+    ///
+    /// Every op is the same flat object with every field required, because that is the shape
+    /// constrained decoding handles reliably: a union of per-op objects (`anyOf`) made models emit
+    /// junk ops and no nodes at all. Fields an op does not use carry "" or 0 and are ignored.
     public static func outputSchema() -> [String: Any] {
         func object(_ fields: [(String, [String: Any])]) -> [String: Any] {
             [
@@ -135,25 +147,20 @@ public enum Prompt {
                 "additionalProperties": false,
             ]
         }
-        func op(_ name: String) -> (String, [String: Any]) { ("op", ["const": name]) }
         let string: [String: Any] = ["type": "string"]
         let pixels: [String: Any] = ["type": "integer"]
-        let rect: [(String, [String: Any])] = [("x", pixels), ("y", pixels), ("w", pixels), ("h", pixels)]
 
-        let node = object(
-            [op("node"), ("id", string), ("shape", ["enum": Node.Shape.allCases.map(\.rawValue)])]
-                + rect
-                + [("label", string), ("color", ["enum": NodeColor.allCases.map(\.rawValue)])]
-        )
-        let edge = object([
-            op("edge"), ("id", string), ("from", string), ("to", string), ("label", string),
-            ("style", ["enum": Edge.Style.allCases.map(\.rawValue)]),
+        let op = object([
+            ("op", ["type": "string", "enum": ["node", "edge", "delete", "erase"]]),
+            ("id", string),
+            ("shape", ["type": "string", "enum": Node.Shape.allCases.map(\.rawValue)]),
+            ("x", pixels), ("y", pixels), ("w", pixels), ("h", pixels),
+            ("label", string),
+            ("color", ["type": "string", "enum": NodeColor.allCases.map(\.rawValue)]),
+            ("from", string),
+            ("to", string),
+            ("style", ["type": "string", "enum": Edge.Style.allCases.map(\.rawValue)]),
         ])
-        let delete = object([op("delete"), ("id", string)])
-        let erase = object([op("erase")] + rect)
-
-        return object([
-            ("ops", ["type": "array", "items": ["anyOf": [node, edge, delete, erase]]]),
-        ])
+        return object([("ops", ["type": "array", "items": op])])
     }
 }

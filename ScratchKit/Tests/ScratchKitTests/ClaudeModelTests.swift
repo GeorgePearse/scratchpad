@@ -97,7 +97,7 @@ private func jsonBody(of request: URLRequest) throws -> [String: Any] {
         }
         let schema = Prompt.outputSchema()
         try check(schema)
-        #expect(objects == 5)
+        #expect(objects == 2)
         #expect(JSONSerialization.isValidJSONObject(schema))
     }
 }
