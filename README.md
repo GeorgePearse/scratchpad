@@ -1,6 +1,6 @@
 # Scratchpad
 
-A blank iPad page for Apple Pencil, with a visual model watching it. You sketch boxes, arrows and
+A blank, endless iPad canvas for Apple Pencil, with a visual model watching it. You sketch boxes, arrows and
 handwriting; each time the Pencil lifts, a model looks at the canvas and edits the diagram: rough
 shapes become clean ones, handwriting becomes labels, a scribble through something deletes it.
 
@@ -27,6 +27,8 @@ That plays a short scripted session against a canned model.
 | Pencil | Draws ink. The model takes a look half a second after you lift it. |
 | Finger | Draws too, by default. Turn "Draw with a finger" off in settings and a finger drags clean shapes instead, with their connectors following. |
 | Eraser | Rubs out ink, and any shape outline or connector it crosses. |
+| Pinch, two-finger drag | Zooms (10% to 500%) and pans. With finger drawing off, one finger pans. |
+| Arrows-in button | Fits everything on the pad into view. |
 | Pencil double-tap | Switches between pen and eraser. |
 | Sparkles button | Turns the model on and off, and shows how long the last pass took. |
 
@@ -43,7 +45,8 @@ PencilKit ink.
 1. **Trigger.** `ModelLoop` runs a pass only after the user changes something, once the Pencil has
    been up for the settle time. One pass is in flight at a time; changes made during it trigger the
    next one. An idle canvas makes no requests.
-2. **Snapshot.** The canvas is rendered to a PNG (1024 px on the long edge, always black on white).
+2. **Snapshot.** The part of the canvas on screen is rendered to a PNG (1024 px on the long edge,
+   always black on white), so the model works on what you are looking at, at the zoom you chose.
    In the model's copy each clean element has its id printed beside it in magenta, so the model can
    refer to it. The same elements go along as JSON.
 3. **Model.** The model replies with a list of ops: `node` and `edge` create or replace, `delete`
@@ -77,6 +80,7 @@ ScratchKit/          Swift package with everything that isn't UI
   Prompt, ClaudeModel  the prompt, reply schema and Messages API client
   padmodel             command-line tool: one pass over a PNG
 ScratchpadUITests/   Tests that draw on the real canvas
+Examples/            A script that builds a large pad (an RF-DETR paper explainer) as JSON
 ```
 
 ## Testing
@@ -100,7 +104,8 @@ ready-made inputs for this.
 
 ## Limits
 
-- The canvas is one fixed page the size of the screen: no pan or zoom yet.
+- The canvas is large rather than truly infinite: 20,000 points square, about fifteen screens each way.
+- The model only sees what is on screen. Zoomed far out, small ink becomes too small for it to read.
 - Connectors join two shapes; there are no free-floating arrows.
 - The API key is stored in the device keychain and requests go straight from the iPad to Anthropic.
   That suits a personal tool, not something you would ship to other people.

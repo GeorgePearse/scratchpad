@@ -22,6 +22,10 @@ struct ControlBar: View {
 
             Divider().frame(height: 22).padding(.horizontal, 4)
 
+            BarButton("Show everything", systemImage: "arrow.down.right.and.arrow.up.left") {
+                store.showContent()
+            }
+            .disabled(store.isBlank)
             BarButton("Undo", systemImage: "arrow.uturn.backward") {
                 store.undo()
             }

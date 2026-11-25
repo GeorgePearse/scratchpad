@@ -10,7 +10,8 @@ public enum Prompt {
 
     ## What you are looking at
 
-    The image is the whole canvas. It holds two kinds of marks:
+    The image is the part of the canvas the user is looking at; the canvas extends beyond it, and \
+    you only deal with what is in view. It holds two kinds of marks:
 
     - Clean elements: shapes, connectors and text that already exist as structured objects. Each one \
     is listed in the JSON you are given, and has its id printed beside it in small magenta type. Those \
@@ -88,8 +89,8 @@ public enum Prompt {
             lines.append("Clean elements on the canvas:")
             lines.append(sceneJSON(input.diagram))
         }
-        let nodeIDs = input.diagram.freeIDs(prefix: "n", count: 6).joined(separator: ", ")
-        let edgeIDs = input.diagram.freeIDs(prefix: "e", count: 6).joined(separator: ", ")
+        let nodeIDs = input.unusedIDs.nodes.joined(separator: ", ")
+        let edgeIDs = input.unusedIDs.edges.joined(separator: ", ")
         lines.append("")
         lines.append("Unused ids for new nodes: \(nodeIDs). Unused ids for new edges: \(edgeIDs).")
 

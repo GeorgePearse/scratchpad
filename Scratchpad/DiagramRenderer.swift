@@ -10,11 +10,18 @@ enum DiagramRenderer {
     ///
     /// - Parameter tagSize: When set, each element's id is printed beside it at this font size.
     ///   Only the model's copy of the canvas carries tags.
-    static func draw(_ diagram: Diagram, tagSize: CGFloat? = nil) {
+    ///   - visible: When set, elements wholly outside this rectangle are skipped.
+    static func draw(_ diagram: Diagram, tagSize: CGFloat? = nil, visible: CGRect? = nil) {
+        let nodesByID = Dictionary(diagram.nodes.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         var edgeTags: [(String, CGPoint)] = []
         for edge in diagram.edges {
-            guard let from = diagram.node(edge.from), let to = diagram.node(edge.to),
+            guard let from = nodesByID[edge.from], let to = nodesByID[edge.to],
                   let segment = Geometry.segment(from: from, to: to, gap: 5) else { continue }
+            if let visible {
+                let reach = CGRect(x: min(segment.start.x, segment.end.x), y: min(segment.start.y, segment.end.y),
+                                   width: abs(segment.end.x - segment.start.x), height: abs(segment.end.y - segment.start.y))
+                guard reach.insetBy(dx: -80, dy: -30).intersects(visible) else { continue }
+            }
             draw(edge, from: segment.start, to: segment.end)
 
             // A quarter of the way along and off to one side, clear of both the line and its label.
@@ -28,6 +35,8 @@ enum DiagramRenderer {
             )))
         }
         for node in diagram.nodes {
+            // Free text can run past the right of its frame, so give it room before culling.
+            if let visible, !node.frame.insetBy(dx: node.shape == .text ? -2000 : -10, dy: -10).intersects(visible) { continue }
             draw(node)
         }
         if let tagSize {
@@ -38,9 +47,9 @@ enum DiagramRenderer {
             }
             for node in diagram.nodes {
                 drawTag(node.id, size: tagSize) { textSize in
-                    // Just above the top-left corner, or just inside it at the top edge of the canvas.
+                    // Just above the top-left corner, or just inside it at the top edge of the picture.
                     let above = node.frame.minY - textSize.height - 1
-                    return CGPoint(x: node.frame.minX, y: above >= 0 ? above : node.frame.minY + 2)
+                    return CGPoint(x: node.frame.minX, y: above >= (visible?.minY ?? 0) ? above : node.frame.minY + 2)
                 }
             }
         }
@@ -68,9 +77,16 @@ enum DiagramRenderer {
 
         guard !node.label.isEmpty else { return }
         if node.shape == .text {
-            // Free text keeps the scale it was written at and never wraps.
-            let size = min(max(frame.height * 0.62, 13), 44)
-            drawText(node.label, centeredAt: node.center, font: font(size), color: color)
+            // Free text keeps the scale it was written at: the frame's height, shared between its
+            // lines, sets the type size. Lines start at the frame's left edge and never wrap.
+            let lines = node.label.components(separatedBy: "\n")
+            let lineHeight = frame.height / CGFloat(lines.count)
+            let font = font(min(max(lineHeight * 0.62, 9), 72))
+            let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
+            for (index, line) in lines.enumerated() {
+                let y = frame.minY + CGFloat(index) * lineHeight + (lineHeight - font.lineHeight) / 2
+                (line as NSString).draw(at: CGPoint(x: frame.minX, y: y), withAttributes: attributes)
+            }
         } else {
             let inset: CGFloat = switch node.shape {
             case .ellipse: 0.16
@@ -226,15 +242,15 @@ extension NodeColor {
 struct CanvasSnapshot {
     let png: Data
     let pixelSize: CGSize
-    /// Image pixels per canvas point.
-    let scale: CGFloat
+    /// Maps canvas points to pixels in the image.
+    let toImage: CGAffineTransform
 
     @MainActor
-    static func make(diagram: Diagram, drawing: PKDrawing, canvasSize: CGSize, longEdge: CGFloat = 1024) -> CanvasSnapshot? {
-        guard canvasSize.width >= 1, canvasSize.height >= 1 else { return nil }
-        let scale = min(1, longEdge / max(canvasSize.width, canvasSize.height))
-        let pixelSize = CGSize(width: (canvasSize.width * scale).rounded(), height: (canvasSize.height * scale).rounded())
-        let bounds = CGRect(origin: .zero, size: canvasSize)
+    /// Renders the part of the canvas inside `rect` (canvas points).
+    static func make(diagram: Diagram, drawing: PKDrawing, rect: CGRect, longEdge: CGFloat = 1024) -> CanvasSnapshot? {
+        guard rect.width >= 1, rect.height >= 1 else { return nil }
+        let scale = min(1, longEdge / max(rect.width, rect.height))
+        let pixelSize = CGSize(width: (rect.width * scale).rounded(), height: (rect.height * scale).rounded())
 
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
@@ -247,12 +263,15 @@ struct CanvasSnapshot {
                 UIColor.white.setFill()
                 context.fill(CGRect(origin: .zero, size: pixelSize))
                 context.cgContext.scaleBy(x: scale, y: scale)
-                DiagramRenderer.draw(diagram, tagSize: 12 / scale)
+                context.cgContext.translateBy(x: -rect.minX, y: -rect.minY)
+                DiagramRenderer.draw(diagram, tagSize: 12 / scale, visible: rect)
                 // Rendered at twice the target density so thin strokes survive the downscale.
-                drawing.image(from: bounds, scale: scale * 2).draw(in: bounds)
+                drawing.image(from: rect, scale: scale * 2).draw(in: rect)
             }
         }
         guard let png = image.pngData() else { return nil }
-        return CanvasSnapshot(png: png, pixelSize: pixelSize, scale: scale)
+        let toImage = CGAffineTransform(translationX: -rect.minX, y: -rect.minY)
+            .concatenating(CGAffineTransform(scaleX: scale, y: scale))
+        return CanvasSnapshot(png: png, pixelSize: pixelSize, toImage: toImage)
     }
 }

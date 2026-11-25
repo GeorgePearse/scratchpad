@@ -102,15 +102,33 @@ public struct Diagram: Codable, Equatable, Sendable {
         return true
     }
 
-    /// The same diagram in a coordinate space scaled by `factor` (canvas points <-> model image pixels).
-    public func scaled(by factor: CGFloat) -> Diagram {
+    /// The same diagram in another coordinate space (canvas points <-> model image pixels).
+    /// The transform is expected to be a scale and translation.
+    public func applying(_ transform: CGAffineTransform) -> Diagram {
         var copy = self
         copy.nodes = nodes.map { node in
             var node = node
-            node.frame = node.frame.scaled(by: factor)
+            node.frame = node.frame.applying(transform)
             return node
         }
         return copy
+    }
+
+    public func scaled(by factor: CGFloat) -> Diagram {
+        applying(CGAffineTransform(scaleX: factor, y: factor))
+    }
+
+    /// The nodes that overlap `rect`, with the edges that join two of them: what a view of that
+    /// rectangle shows.
+    public func part(in rect: CGRect) -> Diagram {
+        let kept = nodes.filter { $0.frame.intersects(rect) }
+        let ids = Set(kept.map(\.id))
+        return Diagram(nodes: kept, edges: edges.filter { ids.contains($0.from) && ids.contains($0.to) })
+    }
+
+    /// The smallest rectangle containing every node, or nil for an empty diagram.
+    public var bounds: CGRect? {
+        nodes.isEmpty ? nil : nodes.reduce(CGRect.null) { $0.union($1.frame) }
     }
 
     /// Ids of the form `<prefix><n>` that are not in use yet, lowest first.
@@ -127,8 +145,3 @@ public struct Diagram: Codable, Equatable, Sendable {
     }
 }
 
-extension CGRect {
-    func scaled(by factor: CGFloat) -> CGRect {
-        CGRect(x: minX * factor, y: minY * factor, width: width * factor, height: height * factor)
-    }
-}

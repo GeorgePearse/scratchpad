@@ -13,12 +13,19 @@ public struct ModelInput: Sendable {
     public var diagram: Diagram
     /// Free-text guidance from the user that applies to every pass. May be empty.
     public var instructions: String
+    /// Ids that are safe to give new elements. When the image shows only part of a larger canvas,
+    /// `diagram` does not list everything, so the free ids have to be supplied from outside.
+    public var unusedIDs: (nodes: [String], edges: [String])
 
-    public init(imagePNG: Data, imageSize: CGSize, diagram: Diagram, instructions: String = "") {
+    public init(
+        imagePNG: Data, imageSize: CGSize, diagram: Diagram, instructions: String = "",
+        unusedIDs: (nodes: [String], edges: [String])? = nil
+    ) {
         self.imagePNG = imagePNG
         self.imageSize = imageSize
         self.diagram = diagram
         self.instructions = instructions
+        self.unusedIDs = unusedIDs ?? (diagram.freeIDs(prefix: "n", count: 6), diagram.freeIDs(prefix: "e", count: 6))
     }
 }
 

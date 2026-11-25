@@ -3,7 +3,8 @@ import ScratchKit
 import SwiftUI
 import UIKit
 
-/// The drawing surface: clean diagram underneath, live PencilKit ink on top.
+/// The drawing surface: clean diagram underneath, live PencilKit ink on top, on a canvas that
+/// pans and zooms.
 struct PadCanvas: UIViewRepresentable {
     let store: PadStore
     // Passed in as plain values so SwiftUI calls `updateUIView` whenever they change.
@@ -41,7 +42,7 @@ struct PadCanvas: UIViewRepresentable {
         func attach(to view: PadView) {
             self.view = view
             view.canvas.delegate = self
-            view.onResize = { [store] size in store.canvasSize = size }
+            view.onFirstLayout = { [store] in store.showContent(animated: false) }
 
             view.movePan.addTarget(self, action: #selector(handleMove))
             view.movePan.delegate = self
@@ -63,7 +64,8 @@ struct PadCanvas: UIViewRepresentable {
                 Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
                     MainActor.assumeIsolated {
                         guard let self, let view = self.view else { return }
-                        Trace.log("alive; canvas \(Int(view.bounds.width))x\(Int(view.bounds.height)), policy \(view.canvas.drawingPolicy.rawValue), tool \(type(of: view.canvas.tool)), strokes \(view.canvas.drawing.strokes.count), loop \(self.store.loop.phase), error \(self.store.loop.lastError ?? "none")")
+                        let r = view.visibleRect
+                        Trace.log("alive; viewing (\(Int(r.minX)), \(Int(r.minY))) \(Int(r.width))x\(Int(r.height)) at zoom \(String(format: "%.2f", view.canvas.zoomScale)), policy \(view.canvas.drawingPolicy.rawValue), tool \(type(of: view.canvas.tool)), strokes \(view.canvas.drawing.strokes.count), loop \(self.store.loop.phase), error \(self.store.loop.lastError ?? "none")")
                     }
                 }
             }
@@ -92,6 +94,14 @@ struct PadCanvas: UIViewRepresentable {
             set { view?.canvas.drawing = newValue }
         }
 
+        var visibleRect: CGRect {
+            view?.visibleRect ?? .zero
+        }
+
+        func show(_ rect: CGRect, animated: Bool) {
+            view?.show(rect, animated: animated)
+        }
+
         // MARK: PKCanvasViewDelegate
 
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
@@ -104,6 +114,15 @@ struct PadCanvas: UIViewRepresentable {
 
         func canvasViewDidEndUsingTool(_ canvasView: PKCanvasView) {
             store.penUp()
+        }
+
+        // The diagram layer does not live inside the scroll view, so it has to be told where to draw.
+        func scrollViewDidScroll(_ scrollView: UIScrollView) {
+            view?.syncDiagramToViewport()
+        }
+
+        func scrollViewDidZoom(_ scrollView: UIScrollView) {
+            view?.syncDiagramToViewport()
         }
 
         // MARK: Pencil double-tap
@@ -122,8 +141,24 @@ struct PadCanvas: UIViewRepresentable {
             let location = pan.location(in: view)
             let travelled = pan.translation(in: view)
             let start = CGPoint(x: location.x - travelled.x, y: location.y - travelled.y)
-            movingNodeID = store.beginMove(at: start)
+            movingNodeID = store.beginMove(at: view.worldPoint(start))
             return movingNodeID != nil
+        }
+
+        @objc private func handleMove(_ pan: UIPanGestureRecognizer) {
+            guard let view, let id = movingNodeID else { return }
+            switch pan.state {
+            case .began, .changed:
+                let travelled = pan.translation(in: view)
+                let zoom = view.canvas.zoomScale
+                store.move(id, by: CGPoint(x: travelled.x / zoom, y: travelled.y / zoom))
+                pan.setTranslation(.zero, in: view)
+            case .ended, .cancelled, .failed:
+                movingNodeID = nil
+                store.endMove()
+            default:
+                break
+            }
         }
 
         // MARK: Erasing shapes
@@ -136,26 +171,16 @@ struct PadCanvas: UIViewRepresentable {
 
         @objc private func handleErase(_ tracker: UILongPressGestureRecognizer) {
             guard let view else { return }
+            // A second finger means a pan or pinch, not erasing.
+            guard tracker.numberOfTouches <= 1 else { return }
+            // The reach of the eraser stays the same on screen however far in or out the canvas is.
+            let reach = 14 / view.canvas.zoomScale
             switch tracker.state {
             case .began:
                 store.beginErasing()
-                store.erase(at: tracker.location(in: view))
+                store.erase(at: view.worldPoint(tracker.location(in: view)), reach: reach)
             case .changed:
-                store.erase(at: tracker.location(in: view))
-            default:
-                break
-            }
-        }
-
-        @objc private func handleMove(_ pan: UIPanGestureRecognizer) {
-            guard let view, let id = movingNodeID else { return }
-            switch pan.state {
-            case .began, .changed:
-                store.move(id, by: pan.translation(in: view))
-                pan.setTranslation(.zero, in: view)
-            case .ended, .cancelled, .failed:
-                movingNodeID = nil
-                store.endMove()
+                store.erase(at: view.worldPoint(tracker.location(in: view)), reach: reach)
             default:
                 break
             }
@@ -164,14 +189,22 @@ struct PadCanvas: UIViewRepresentable {
 }
 
 final class PadView: UIView {
+    /// The canvas is a square this many points across. It is big enough to feel endless (about
+    /// fifteen screens each way) while staying a size PencilKit handles comfortably.
+    static let worldSide: CGFloat = 20000
+    /// The middle of the canvas, where a new pad starts.
+    static let worldCenter = CGPoint(x: worldSide / 2, y: worldSide / 2)
+
     let diagramView = DiagramView()
     let canvas = PKCanvasView()
     let movePan = UIPanGestureRecognizer()
     /// Follows the eraser's position, since PencilKit doesn't report where it is erasing.
     let eraseTracker = UILongPressGestureRecognizer()
-    var onResize: ((CGSize) -> Void)?
+    /// Called once, when the view first has a size and can be pointed at the content.
+    var onFirstLayout: (() -> Void)?
 
     private var configuration: (tool: PadStore.Tool, fingerDraws: Bool)?
+    private var hasLaidOut = false
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -181,12 +214,15 @@ final class PadView: UIView {
         // The ink layer is transparent, so the diagram shows through from below.
         canvas.backgroundColor = .clear
         canvas.isOpaque = false
-        // One fixed page the size of the screen: no scrolling, no zoom, no inset surprises,
-        // which keeps ink coordinates and diagram coordinates the same thing.
-        canvas.isScrollEnabled = false
+        // PKCanvasView is a scroll view, so panning and pinch-zooming come with it. Ink and diagram
+        // share one coordinate space: points on this content area at zoom 1.
+        canvas.contentSize = CGSize(width: Self.worldSide, height: Self.worldSide)
+        canvas.minimumZoomScale = 0.1
+        canvas.maximumZoomScale = 5
         canvas.contentInsetAdjustmentBehavior = .never
-        canvas.minimumZoomScale = 1
-        canvas.maximumZoomScale = 1
+        canvas.showsVerticalScrollIndicator = false
+        canvas.showsHorizontalScrollIndicator = false
+        canvas.bouncesZoom = false
         addSubview(canvas)
 
         // One element for assistive technology, which passes touches straight through so drawing still works.
@@ -198,6 +234,8 @@ final class PadView: UIView {
         movePan.maximumNumberOfTouches = 1
         movePan.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
         canvas.addGestureRecognizer(movePan)
+        // A finger that lands on a shape drags the shape; anywhere else it pans the canvas.
+        canvas.panGestureRecognizer.require(toFail: movePan)
 
         // Zero press duration makes this a plain "where is the touch" tracker.
         eraseTracker.minimumPressDuration = 0
@@ -216,16 +254,56 @@ final class PadView: UIView {
         super.layoutSubviews()
         diagramView.frame = bounds
         canvas.frame = bounds
-        canvas.contentSize = bounds.size
-        onResize?(bounds.size)
+        guard bounds.width > 0, bounds.height > 0 else { return }
+        if !hasLaidOut {
+            hasLaidOut = true
+            show(CGRect(origin: Self.worldCenter, size: .zero), animated: false)
+            onFirstLayout?()
+        }
+        syncDiagramToViewport()
     }
+
+    // MARK: Viewport
+
+    /// The part of the canvas on screen, in canvas points.
+    var visibleRect: CGRect {
+        let zoom = canvas.zoomScale
+        return CGRect(
+            x: canvas.contentOffset.x / zoom, y: canvas.contentOffset.y / zoom,
+            width: bounds.width / zoom, height: bounds.height / zoom
+        )
+    }
+
+    /// Converts a point in this view to canvas points.
+    func worldPoint(_ point: CGPoint) -> CGPoint {
+        let zoom = canvas.zoomScale
+        return CGPoint(x: (point.x + canvas.contentOffset.x) / zoom, y: (point.y + canvas.contentOffset.y) / zoom)
+    }
+
+    /// Centres `rect` on screen, zooming out as far as needed to fit it but never zooming in past 100%.
+    func show(_ rect: CGRect, animated: Bool) {
+        guard bounds.width > 0, bounds.height > 0 else { return }
+        let margin: CGFloat = 40
+        let fit = min(bounds.width / (rect.width + margin * 2), bounds.height / (rect.height + margin * 2))
+        let zoom = min(max(fit, canvas.minimumZoomScale), 1)
+        let size = CGSize(width: bounds.width / zoom, height: bounds.height / zoom)
+        let target = CGRect(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2, width: size.width, height: size.height)
+        canvas.zoom(to: target, animated: animated)
+        syncDiagramToViewport()
+    }
+
+    func syncDiagramToViewport() {
+        diagramView.setViewport(zoom: canvas.zoomScale, offset: canvas.contentOffset)
+    }
+
+    // MARK: Tools
 
     func configure(tool: PadStore.Tool, fingerDraws: Bool) {
         if let configuration, configuration == (tool, fingerDraws) { return }
         configuration = (tool, fingerDraws)
 
-        // Pencil-first: the Pencil draws and a finger moves shapes. With finger drawing on, a finger
-        // draws too, so it can no longer be used to move things.
+        // With finger drawing on, one finger draws and two fingers pan and pinch. With it off, only
+        // the Pencil draws, so one finger is free to pan the canvas and to drag shapes.
         canvas.drawingPolicy = fingerDraws ? .anyInput : .pencilOnly
         movePan.isEnabled = !fingerDraws
         // The eraser takes out shapes as well as ink, with whatever is allowed to draw.
@@ -244,12 +322,22 @@ final class PadView: UIView {
     }
 }
 
-/// Paints the clean diagram beneath the ink.
+/// Paints the clean diagram beneath the ink, following the canvas as it pans and zooms.
 final class DiagramView: UIView {
     var diagram = Diagram() {
         didSet {
             if diagram != oldValue { setNeedsDisplay() }
         }
+    }
+
+    private var zoom: CGFloat = 1
+    private var offset: CGPoint = .zero
+
+    func setViewport(zoom: CGFloat, offset: CGPoint) {
+        guard zoom != self.zoom || offset != self.offset else { return }
+        self.zoom = zoom
+        self.offset = offset
+        setNeedsDisplay()
     }
 
     override init(frame: CGRect) {
@@ -268,6 +356,13 @@ final class DiagramView: UIView {
     }
 
     override func draw(_ rect: CGRect) {
-        DiagramRenderer.draw(diagram)
+        guard let context = UIGraphicsGetCurrentContext() else { return }
+        context.translateBy(x: -offset.x, y: -offset.y)
+        context.scaleBy(x: zoom, y: zoom)
+        let visible = CGRect(
+            x: offset.x / zoom, y: offset.y / zoom,
+            width: bounds.width / zoom, height: bounds.height / zoom
+        )
+        DiagramRenderer.draw(diagram, visible: visible)
     }
 }

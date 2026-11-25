@@ -12,17 +12,21 @@ public enum EditOp: Equatable, Sendable {
     /// Remove the freehand ink that lies inside this rectangle. Never touches nodes or edges.
     case erase(CGRect)
 
-    /// The same op in a coordinate space scaled by `factor`.
-    public func scaled(by factor: CGFloat) -> EditOp {
+    /// The same op in another coordinate space. The transform is expected to be a scale and translation.
+    public func applying(_ transform: CGAffineTransform) -> EditOp {
         switch self {
         case .node(var node):
-            node.frame = node.frame.scaled(by: factor)
+            node.frame = node.frame.applying(transform)
             return .node(node)
         case .erase(let rect):
-            return .erase(rect.scaled(by: factor))
+            return .erase(rect.applying(transform))
         case .edge, .delete:
             return self
         }
+    }
+
+    public func scaled(by factor: CGFloat) -> EditOp {
+        applying(CGAffineTransform(scaleX: factor, y: factor))
     }
 }
 

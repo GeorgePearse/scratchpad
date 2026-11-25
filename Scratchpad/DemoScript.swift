@@ -19,17 +19,17 @@ enum DemoScript {
         guard scripted || UserDefaults.standard.bool(forKey: "cannedModel") else { return }
 
         store.persists = false
-        store.clear()
+        store.startFresh()
         store.modelOverride = CannedModel()
         store.loop.timing = { ModelLoop.Timing(settle: .milliseconds(300)) }
         store.loop.setEnabled(true)
         store.loop.retry()
 
         guard scripted else { return }
-        while store.canvasSize == .zero {
+        while store.viewport.isEmpty {
             try? await Task.sleep(for: .milliseconds(50))
         }
-        let size = store.canvasSize
+        let size = store.viewport
 
         // First the user sketches two shapes and joins them.
         store.userDrew(Sketch.box(Layout.a.in(size)) + Sketch.oval(Layout.b.in(size))
@@ -62,14 +62,16 @@ private enum Layout {
 }
 
 private extension CGRect {
-    func `in`(_ size: CGSize) -> CGRect {
-        CGRect(x: minX * size.width, y: minY * size.height, width: width * size.width, height: height * size.height)
+    /// This rectangle, read as fractions of `area`.
+    func `in`(_ area: CGRect) -> CGRect {
+        CGRect(x: area.minX + minX * area.width, y: area.minY + minY * area.height,
+               width: width * area.width, height: height * area.height)
     }
 }
 
 private extension CGPoint {
-    func `in`(_ size: CGSize) -> CGPoint {
-        CGPoint(x: x * size.width, y: y * size.height)
+    func `in`(_ area: CGRect) -> CGPoint {
+        CGPoint(x: area.minX + x * area.width, y: area.minY + y * area.height)
     }
 }
 
@@ -84,7 +86,7 @@ private actor CannedModel: DiagramModel {
         try? Data(Prompt.userText(for: input).utf8).write(to: documents.appending(path: "pass-\(pass).txt"))
         try await Task.sleep(for: .milliseconds(600))
 
-        let size = input.imageSize
+        let size = CGRect(origin: .zero, size: input.imageSize)
         func around(_ from: CGPoint, _ to: CGPoint) -> CGRect {
             CGRect(x: min(from.x, to.x), y: min(from.y, to.y), width: abs(to.x - from.x), height: abs(to.y - from.y))
                 .in(size).insetBy(dx: -24, dy: -24)

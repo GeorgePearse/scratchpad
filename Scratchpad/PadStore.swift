@@ -8,6 +8,10 @@ import UIKit
 @MainActor
 protocol InkSurface: AnyObject {
     var drawing: PKDrawing { get set }
+    /// The part of the canvas on screen, in canvas points.
+    var visibleRect: CGRect { get }
+    /// Scrolls and zooms so that `rect` is centred and fully in view.
+    func show(_ rect: CGRect, animated: Bool)
 }
 
 /// Everything on the pad: the clean diagram, the ink, undo history, and the model loop that edits them.
@@ -30,8 +34,8 @@ final class PadStore {
     let settings = PadSettings()
     let loop = ModelLoop()
 
-    /// Size of the canvas in points. Set by the canvas view as it lays out.
-    @ObservationIgnored var canvasSize: CGSize = .zero
+    /// The part of the canvas on screen, in canvas points. Empty until the canvas has laid out.
+    var viewport: CGRect { ink?.visibleRect ?? .zero }
     /// The canvas view, once it exists. Until then the store's own copy of the ink stands in.
     @ObservationIgnored weak var ink: (any InkSurface)? {
         didSet { ink?.drawing = drawing }
@@ -124,11 +128,9 @@ final class PadStore {
     func move(_ id: String, by delta: CGPoint) {
         guard let index = diagram.nodes.firstIndex(where: { $0.id == id }) else { return }
         var frame = diagram.nodes[index].frame.offsetBy(dx: delta.x, dy: delta.y)
-        // Keep the centre on the canvas, so a node can't be dragged out of reach.
-        if canvasSize != .zero {
-            frame.origin.x = min(max(frame.origin.x, -frame.width / 2), canvasSize.width - frame.width / 2)
-            frame.origin.y = min(max(frame.origin.y, -frame.height / 2), canvasSize.height - frame.height / 2)
-        }
+        // Keep the centre on the canvas, so a node can't be dragged off the edge of the world.
+        frame.origin.x = min(max(frame.origin.x, -frame.width / 2), PadView.worldSide - frame.width / 2)
+        frame.origin.y = min(max(frame.origin.y, -frame.height / 2), PadView.worldSide - frame.height / 2)
         diagram.nodes[index].frame = frame
     }
 
@@ -143,9 +145,9 @@ final class PadStore {
         eraseIsRecorded = false
     }
 
-    /// Removes the shape or connector whose line is under the eraser at `point`.
-    func erase(at point: CGPoint) {
-        guard let id = diagram.elementID(touchedAt: point, tolerance: 14) else { return }
+    /// Removes the shape or connector whose line is within `reach` of the eraser at `point`.
+    func erase(at point: CGPoint, reach: CGFloat) {
+        guard let id = diagram.elementID(touchedAt: point, tolerance: reach) else { return }
         Trace.log("eraser removed \(id)")
         // One undo step per sweep of the eraser, however many things it takes out.
         if !eraseIsRecorded {
@@ -157,6 +159,15 @@ final class PadStore {
     }
 
     // MARK: Whole-pad actions
+
+    /// Brings everything on the pad into view. Does nothing on a blank pad.
+    func showContent(animated: Bool = true) {
+        var bounds = diagram.bounds ?? .null
+        let inkBounds = currentDrawing().bounds
+        if !inkBounds.isNull, !inkBounds.isEmpty { bounds = bounds.union(inkBounds) }
+        guard !bounds.isNull else { return }
+        ink?.show(bounds, animated: animated)
+    }
 
     func undo() {
         guard let previous = history.popLast() else { return }
@@ -174,6 +185,14 @@ final class PadStore {
         scheduleSave()
     }
 
+    /// Empties the pad and forgets its history, as if newly installed. Used by the scripted demo.
+    func startFresh() {
+        diagram = Diagram()
+        setDrawing(PKDrawing())
+        history = []
+        canUndo = false
+    }
+
     /// Adds strokes as though the user had just drawn them. Used by the scripted demo.
     func userDrew(_ strokes: [PKStroke]) {
         pushHistory()
@@ -188,8 +207,11 @@ final class PadStore {
     private func makeJob() -> ModelLoop.Job? {
         let drawing = currentDrawing()
         // Ink is how the user addresses the model, so with no ink there is nothing to answer.
-        guard !drawing.strokes.isEmpty,
-              let snapshot = CanvasSnapshot.make(diagram: diagram, drawing: drawing, canvasSize: canvasSize) else { return nil }
+        // The model sees what the user sees: the visible part of the canvas, at whatever zoom.
+        let view = viewport
+        let inView = diagram.part(in: view)
+        guard drawing.strokes.contains(where: { $0.renderBounds.intersects(view) }),
+              let snapshot = CanvasSnapshot.make(diagram: inView, drawing: drawing, rect: view) else { return nil }
 
         // What the model is answering. By the time it replies, the canvas may have moved on.
         let base = diagram
@@ -198,12 +220,14 @@ final class PadStore {
         let input = ModelInput(
             imagePNG: snapshot.png,
             imageSize: snapshot.pixelSize,
-            diagram: diagram.scaled(by: snapshot.scale),
-            instructions: settings.instructions
+            diagram: inView.applying(snapshot.toImage),
+            instructions: settings.instructions,
+            // New ids must be unused across the whole canvas, not just the part in view.
+            unusedIDs: (diagram.freeIDs(prefix: "n", count: 6), diagram.freeIDs(prefix: "e", count: 6))
         )
         return ModelLoop.Job(input: input) { [weak self] output in
             guard let self else { return }
-            let ops = output.ops.map { $0.scaled(by: 1 / snapshot.scale) }
+            let ops = output.ops.map { $0.applying(snapshot.toImage.inverted()) }
             whenPenIsUp { self.apply(ops, base: base, strokesSeen: strokesSeen) }
         }
     }
@@ -271,6 +295,9 @@ final class PadStore {
     private struct SavedPad: Codable {
         var diagram: Diagram
         var drawing: Data
+        /// 2 since the canvas became pannable. Files without it were drawn on a fixed page whose
+        /// top-left corner was the origin.
+        var version: Int?
     }
 
     private static var fileURL: URL {
@@ -282,6 +309,12 @@ final class PadStore {
               let saved = try? JSONDecoder().decode(SavedPad.self, from: data) else { return }
         diagram = saved.diagram
         drawing = (try? PKDrawing(data: saved.drawing)) ?? PKDrawing()
+        if saved.version == nil {
+            // Move a fixed-page pad to the middle of the big canvas, so there is room on every side.
+            let shift = CGAffineTransform(translationX: PadView.worldCenter.x, y: PadView.worldCenter.y)
+            diagram = diagram.applying(shift)
+            drawing = drawing.transformed(using: shift)
+        }
         strokeCount = drawing.strokes.count
     }
 
@@ -298,7 +331,7 @@ final class PadStore {
         saveTask?.cancel()
         saveTask = nil
         guard persists else { return }
-        let saved = SavedPad(diagram: diagram, drawing: currentDrawing().dataRepresentation())
+        let saved = SavedPad(diagram: diagram, drawing: currentDrawing().dataRepresentation(), version: 2)
         guard let data = try? JSONEncoder().encode(saved) else { return }
         let url = Self.fileURL
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)

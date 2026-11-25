@@ -139,6 +139,37 @@ final class DrawingLoopTests: XCTestCase {
         XCTAssertFalse(hasMarks(canvas, around: target), "Undo should put the shape back")
     }
 
+    /// With the pad Pencil-only, a finger on empty canvas pans it, and shapes can still be picked
+    /// up afterwards, which checks that touches are mapped through the scrolled view correctly.
+    @MainActor
+    func testAFingerPansTheCanvas() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-demo", "YES", "-fingerDraws", "NO"]
+        app.launch()
+
+        let canvas = app.otherElements["canvas"]
+        XCTAssertTrue(canvas.waitForExistence(timeout: 15))
+        expect(canvas, toRead: "3 shapes, 2 connectors, 1 ink stroke", timeout: 20)
+
+        // The first shape is centred on (0.20, 0.32). Pan by (+0.5, +0.2) from an empty spot.
+        let landed = (0.70, 0.52)
+        XCTAssertFalse(hasMarks(canvas, around: landed))
+        draw(on: canvas, from: (0.30, 0.55), to: (0.80, 0.75))
+        XCTAssertTrue(hasMarks(canvas, around: landed), "The shape should have moved with the canvas")
+        XCTAssertEqual(canvas.value as? String, "3 shapes, 2 connectors, 1 ink stroke")
+
+        // Now pick the shape up where it is on screen and drop it somewhere else.
+        let target = (0.85, 0.88)
+        XCTAssertFalse(hasMarks(canvas, around: target))
+        draw(on: canvas, from: landed, to: target)
+        XCTAssertTrue(hasMarks(canvas, around: target), "The shape should follow the finger after a pan")
+        XCTAssertFalse(hasMarks(canvas, around: landed))
+
+        // Fit brings everything back on screen without changing the content.
+        app.buttons["Show everything"].tap()
+        XCTAssertEqual(canvas.value as? String, "3 shapes, 2 connectors, 1 ink stroke")
+    }
+
     // MARK: Helpers
 
     /// Whether anything is drawn in a small patch of the canvas, judged against its top-left pixel.
