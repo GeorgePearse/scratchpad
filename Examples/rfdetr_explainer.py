@@ -230,6 +230,61 @@ bullets(x0,yy,["Benchmarking: published latencies disagree by 25% or more for th
                "Accuracy and latency must come from the same artifact. Several models are reported with FP16 speed and FP32 accuracy; naively quantised to FP16, D-FINE drops to 0.5 AP until its export is fixed.",
                "YOLO latencies usually omit NMS, and YOLO segmentation latencies stop at prototypes, not per-object masks. The paper's numbers include both."],96)
 
+# ---------------- 9 BatchNorm vs LayerNorm
+y=heading(0,5560,"9.  BatchNorm and LayerNorm  (background for the projector change in section 2)","s9")
+yy=para(0,y+6,"Both layers do the same arithmetic: subtract a mean, divide by a standard deviation, then apply a learned scale and shift. y = γ · (x − μ) / √(σ² + ε) + β. The only difference is which numbers μ and σ are computed from.",118)
+gy=yy+50; CELL=56
+def grid(gx,title,lit,color,rows=4,cols=6):
+    text(gx,gy-44,title,18)
+    for c in range(cols): text(gx+c*CELL+10,gy+rows*CELL+6,f"ch {c+1}",11,"gray")
+    for r in range(rows):
+        text(gx-92,gy+r*CELL+14,f"image {r+1}",13,"gray")
+        for c in range(cols):
+            box(gx+c*CELL,gy+r*CELL,CELL-6,CELL-6,"",color if lit(r,c) else "gray")
+grid(110,"BatchNorm: one channel, across the whole batch",lambda r,c:c==2,"orange")
+grid(700,"LayerNorm: one image, across all its channels",lambda r,c:r==1,"blue")
+text(1160,gy,["Each square is one channel of one image",
+              "(a whole H × W feature map).",
+              "The coloured squares are the values that",
+              "share one mean and one deviation."],15,"gray")
+ny=gy+4*CELL+60
+bn=box(0,ny,470,70,"BatchNorm","orange","rounded"); ln=box(700,ny,470,70,"LayerNorm","blue","rounded")
+yb=bullets(0,ny+95,[
+ "Statistics: per channel, over every image in the batch and every position. One μ and σ per channel.",
+ "So an image's output depends on the other images in its batch. That noise acts as a mild regulariser.",
+ "Training and inference differ: training uses the current batch, inference uses running averages collected during training.",
+ "Needs a reasonably large batch. With 2 or 4 images the statistics are too noisy and accuracy falls. Multi-GPU training needs SyncBN to pool them.",
+ "At inference it is a fixed scale and shift, so it folds into the preceding convolution and costs nothing.",
+ "Home ground: convolutional networks (ResNets, YOLO backbones and necks, the C2f block)."],58)
+yl=bullets(700,ny+95,[
+ "Statistics: per image, over its channels (for a transformer, over the features of each token). Nothing is shared between images.",
+ "So the result is the same whatever the batch size, down to a batch of one.",
+ "Training and inference are identical: no running averages, no mode switch.",
+ "It is computed from the input every time, so it cannot be folded away. A small but real cost at inference.",
+ "For feature maps there are two conventions: normalise over channels at each position (as ConvNeXt does), or over channels and positions together.",
+ "Home ground: transformers (every ViT block, DINOv2 included)."],58)
+yy=max(yb,yl)+20
+yy=text(0,yy,"Side by side",18)
+yy=table(0,yy+10,[360,330,330],[
+ ["","BatchNorm","LayerNorm"],
+ ["Mean and deviation taken over","batch and positions, per channel","channels, per image"],
+ ["Depends on batch size","yes","no"],
+ ["Same in training and inference","no (running averages)","yes"],
+ ["Free at inference","yes, folds into the conv","no"],
+ ["Works with a batch of 1 or 2","poorly","yes"]])
+yy=text(0,yy+16,"Why RF-DETR swapped one for the other",18)
+c1=box(0,yy+16,300,110,"Small GPU\nonly a few images fit per step","gray")
+c2=box(370,yy+16,300,110,"Gradient accumulation\nadd up gradients over several small steps","purple")
+c3=box(740,yy+16,300,110,"BatchNorm still sees\nonly the few images of each small step","orange")
+c4=box(1110,yy+16,300,110,"LayerNorm is unaffected\nit never looks across the batch","blue","rounded")
+arrow(c1,c2); arrow(c2,c3); arrow(c3,c4,"so")
+yy=bullets(0,yy+160,[
+ "Gradient accumulation imitates a large batch for the optimiser, but not for BatchNorm: its statistics still come from each small step. That is the problem the paper is solving when it uses LayerNorm in the multi-scale projector, so the model can be trained on consumer GPUs.",
+ "It is a trade, and the paper says so: replacing BatchNorm with LayerNorm \"hurts performance, but is necessary to train on consumer hardware\". Together with the lower learning rate it costs 1.0 AP (52.6 → 51.6), which the DINOv2 backbone more than wins back.",
+ "The rest of the network needed no change: the ViT backbone and the decoder already use LayerNorm. The projector was the only BatchNorm left, because C2f is a convolutional block borrowed from YOLOv8.",
+ "The paper does not say which LayerNorm convention the projector uses.",
+ "Relatives: GroupNorm normalises groups of channels within one image, InstanceNorm one channel within one image. Both are batch-independent like LayerNorm."],118)
+
 # ---------------- write
 ox,oy=float(sys.argv[2]),float(sys.argv[3])
 only=sys.argv[4] if len(sys.argv)>4 else None
