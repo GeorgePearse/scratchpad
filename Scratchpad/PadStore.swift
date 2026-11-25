@@ -40,6 +40,7 @@ final class PadStore {
     @ObservationIgnored private var drawing = PKDrawing()
     @ObservationIgnored private var history: [(diagram: Diagram, drawing: PKDrawing)] = []
     @ObservationIgnored private var penIsDown = false
+    @ObservationIgnored private var eraseIsRecorded = false
     @ObservationIgnored private var deferredWork: [() -> Void] = []
     @ObservationIgnored private var saveTask: Task<Void, Never>?
 
@@ -127,6 +128,25 @@ final class PadStore {
     }
 
     func endMove() {
+        scheduleSave()
+    }
+
+    // MARK: Erasing clean elements
+
+    /// The eraser has touched down. PencilKit removes the ink it crosses; this handles shapes.
+    func beginErasing() {
+        eraseIsRecorded = false
+    }
+
+    /// Removes the shape or connector whose line is under the eraser at `point`.
+    func erase(at point: CGPoint) {
+        guard let id = diagram.elementID(touchedAt: point, tolerance: 14) else { return }
+        // One undo step per sweep of the eraser, however many things it takes out.
+        if !eraseIsRecorded {
+            pushHistory()
+            eraseIsRecorded = true
+        }
+        diagram.remove(id)
         scheduleSave()
     }
 

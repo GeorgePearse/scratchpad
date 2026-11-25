@@ -45,6 +45,8 @@ struct PadCanvas: UIViewRepresentable {
 
             view.movePan.addTarget(self, action: #selector(handleMove))
             view.movePan.delegate = self
+            view.eraseTracker.addTarget(self, action: #selector(handleErase))
+            view.eraseTracker.delegate = self
             view.canvas.addInteraction(UIPencilInteraction(delegate: self))
 
             store.ink = self
@@ -82,13 +84,33 @@ struct PadCanvas: UIViewRepresentable {
         // MARK: Moving nodes with a finger
 
         func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
-            guard let pan = recognizer as? UIPanGestureRecognizer, let view else { return true }
+            guard let pan = recognizer as? UIPanGestureRecognizer, pan === view?.movePan, let view else { return true }
             // By the time a pan is recognised the finger has already travelled; test where it started.
             let location = pan.location(in: view)
             let travelled = pan.translation(in: view)
             let start = CGPoint(x: location.x - travelled.x, y: location.y - travelled.y)
             movingNodeID = store.beginMove(at: start)
             return movingNodeID != nil
+        }
+
+        // MARK: Erasing shapes
+
+        /// The tracker only watches; PencilKit's own recognizer must keep erasing ink alongside it.
+        func gestureRecognizer(_ recognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+            recognizer === view?.eraseTracker || other === view?.eraseTracker
+        }
+
+        @objc private func handleErase(_ tracker: UILongPressGestureRecognizer) {
+            guard let view else { return }
+            switch tracker.state {
+            case .began:
+                store.beginErasing()
+                store.erase(at: tracker.location(in: view))
+            case .changed:
+                store.erase(at: tracker.location(in: view))
+            default:
+                break
+            }
         }
 
         @objc private func handleMove(_ pan: UIPanGestureRecognizer) {
@@ -111,6 +133,8 @@ final class PadView: UIView {
     let diagramView = DiagramView()
     let canvas = PKCanvasView()
     let movePan = UIPanGestureRecognizer()
+    /// Follows the eraser's position, since PencilKit doesn't report where it is erasing.
+    let eraseTracker = UILongPressGestureRecognizer()
     var onResize: ((CGSize) -> Void)?
 
     private var configuration: (tool: PadStore.Tool, fingerDraws: Bool)?
@@ -140,6 +164,13 @@ final class PadView: UIView {
         movePan.maximumNumberOfTouches = 1
         movePan.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
         canvas.addGestureRecognizer(movePan)
+
+        // Zero press duration makes this a plain "where is the touch" tracker.
+        eraseTracker.minimumPressDuration = 0
+        eraseTracker.allowableMovement = .greatestFiniteMagnitude
+        eraseTracker.cancelsTouchesInView = false
+        eraseTracker.delaysTouchesEnded = false
+        canvas.addGestureRecognizer(eraseTracker)
     }
 
     @available(*, unavailable)
@@ -163,6 +194,11 @@ final class PadView: UIView {
         // draws too, so it can no longer be used to move things.
         canvas.drawingPolicy = fingerDraws ? .anyInput : .pencilOnly
         movePan.isEnabled = !fingerDraws
+        // The eraser takes out shapes as well as ink, with whatever is allowed to draw.
+        eraseTracker.isEnabled = tool == .eraser
+        let pencil = NSNumber(value: UITouch.TouchType.pencil.rawValue)
+        let finger = NSNumber(value: UITouch.TouchType.direct.rawValue)
+        eraseTracker.allowedTouchTypes = fingerDraws ? [pencil, finger] : [pencil]
 
         switch tool {
         case .pen:

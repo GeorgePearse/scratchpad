@@ -76,6 +76,32 @@ public struct Diagram: Codable, Equatable, Sendable {
         nodes.last { $0.frame.insetBy(dx: -slop, dy: -slop).contains(point) }
     }
 
+    /// The id of the element whose drawn line passes under `point`: a node's outline or an edge.
+    /// This is what an eraser hits, so the inside of a shape is deliberately not a hit.
+    public func elementID(touchedAt point: CGPoint, tolerance: CGFloat) -> String? {
+        if let node = nodes.last(where: { Geometry.outline(of: $0, isTouchedAt: point, tolerance: tolerance) }) {
+            return node.id
+        }
+        return edges.last { edge in
+            guard let from = node(edge.from), let to = node(edge.to),
+                  let segment = Geometry.segment(from: from, to: to) else { return false }
+            return Geometry.distance(from: point, toSegment: segment.start, segment.end) <= tolerance
+        }?.id
+    }
+
+    /// Removes a node (with its edges) or an edge. Returns false if there is no such element.
+    @discardableResult
+    public mutating func remove(_ id: String) -> Bool {
+        if nodes.contains(where: { $0.id == id }) {
+            nodes.removeAll { $0.id == id }
+            edges.removeAll { $0.from == id || $0.to == id }
+            return true
+        }
+        guard edges.contains(where: { $0.id == id }) else { return false }
+        edges.removeAll { $0.id == id }
+        return true
+    }
+
     /// The same diagram in a coordinate space scaled by `factor` (canvas points <-> model image pixels).
     public func scaled(by factor: CGFloat) -> Diagram {
         var copy = self

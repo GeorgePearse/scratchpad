@@ -59,6 +59,55 @@ final class DrawingLoopTests: XCTestCase {
         expect(canvas, toRead: "2 shapes, 1 connector, 0 ink strokes")
     }
 
+    @MainActor
+    func testTheEraserRemovesInk() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-cannedModel", "YES"]
+        app.launch()
+
+        let canvas = app.otherElements["canvas"]
+        XCTAssertTrue(canvas.waitForExistence(timeout: 15))
+        expect(canvas, toRead: "Empty")
+
+        // Model off, so the ink stays put.
+        app.buttons["Model"].tap()
+        draw(on: canvas, from: (0.20, 0.50), to: (0.60, 0.50))
+        expect(canvas, toRead: "0 shapes, 0 connectors, 1 ink stroke")
+
+        // Rub across the stroke with the eraser.
+        app.buttons["Eraser"].tap()
+        draw(on: canvas, from: (0.40, 0.40), to: (0.40, 0.60))
+        expect(canvas, toRead: "Empty")
+    }
+
+    @MainActor
+    func testTheEraserRemovesShapesToo() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-demo", "YES"]
+        app.launch()
+
+        let canvas = app.otherElements["canvas"]
+        XCTAssertTrue(canvas.waitForExistence(timeout: 15))
+        expect(canvas, toRead: "3 shapes, 2 connectors, 1 ink stroke", timeout: 20)
+        app.buttons["Model"].tap()
+        app.buttons["Eraser"].tap()
+
+        // Across the left side of the first box: the box goes, and its connector with it.
+        draw(on: canvas, from: (0.05, 0.32), to: (0.15, 0.32))
+        expect(canvas, toRead: "2 shapes, 1 connector, 1 ink stroke")
+
+        // Through the middle of the remaining connector, touching neither shape.
+        draw(on: canvas, from: (0.50, 0.51), to: (0.64, 0.51))
+        expect(canvas, toRead: "2 shapes, 0 connectors, 1 ink stroke")
+
+        // Inside a shape, away from its outline, the eraser leaves it alone.
+        draw(on: canvas, from: (0.55, 0.31), to: (0.59, 0.33))
+        XCTAssertEqual(canvas.value as? String, "2 shapes, 0 connectors, 1 ink stroke")
+
+        app.buttons["Undo"].tap()
+        expect(canvas, toRead: "2 shapes, 1 connector, 1 ink stroke")
+    }
+
     /// On a real iPad only the Pencil draws, which frees a finger to move shapes. The simulator has
     /// no Pencil, so the scripted demo supplies the ink and the test supplies the finger.
     @MainActor

@@ -181,6 +181,42 @@ private func box(_ id: String, x: CGFloat = 0, y: CGFloat = 0, label: String = "
     }
 }
 
+@Suite struct Erasing {
+    let diagram = Diagram(
+        nodes: [
+            Node(id: "box", shape: .rect, frame: CGRect(x: 0, y: 0, width: 200, height: 100)),
+            Node(id: "oval", shape: .ellipse, frame: CGRect(x: 400, y: 0, width: 200, height: 100)),
+            Node(id: "note", shape: .text, frame: CGRect(x: 0, y: 300, width: 100, height: 30), label: "hi"),
+        ],
+        edges: [Edge(id: "link", from: "box", to: "oval")]
+    )
+
+    @Test func hitsOutlinesButNotInteriors() {
+        #expect(diagram.elementID(touchedAt: CGPoint(x: 100, y: 3), tolerance: 10) == "box")
+        #expect(diagram.elementID(touchedAt: CGPoint(x: 100, y: 50), tolerance: 10) == nil)
+        #expect(diagram.elementID(touchedAt: CGPoint(x: 600, y: 50), tolerance: 10) == "oval")
+        // The corner of the oval's bounding box is well away from its outline.
+        #expect(diagram.elementID(touchedAt: CGPoint(x: 402, y: 2), tolerance: 10) == nil)
+        #expect(diagram.elementID(touchedAt: CGPoint(x: 500, y: 50), tolerance: 10) == nil)
+    }
+
+    @Test func hitsTextAnywhereAndEdgesAlongTheirLength() {
+        #expect(diagram.elementID(touchedAt: CGPoint(x: 50, y: 315), tolerance: 10) == "note")
+        #expect(diagram.elementID(touchedAt: CGPoint(x: 300, y: 55), tolerance: 10) == "link")
+        #expect(diagram.elementID(touchedAt: CGPoint(x: 300, y: 90), tolerance: 10) == nil)
+    }
+
+    @Test func removingANodeRemovesItsEdges() {
+        var copy = diagram
+        let removed = copy.remove("box")
+        #expect(removed)
+        #expect(copy.nodes.map(\.id) == ["oval", "note"])
+        #expect(copy.edges.isEmpty)
+        let removedAgain = copy.remove("box")
+        #expect(!removedAgain)
+    }
+}
+
 @Suite struct DiagramBasics {
     @Test func offersTheLowestUnusedIDs() {
         let diagram = Diagram(nodes: [box("n1"), box("n3")], edges: [Edge(id: "e1", from: "n1", to: "n3")])

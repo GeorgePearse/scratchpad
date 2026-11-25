@@ -34,6 +34,40 @@ public enum Geometry {
         return CGPoint(x: center.x + dx / length * reach, y: center.y + dy / length * reach)
     }
 
+    /// Whether `point` lies on the drawn outline of `node`, give or take `tolerance`. Free text has
+    /// no outline, so anywhere on it counts.
+    public static func outline(of node: Node, isTouchedAt point: CGPoint, tolerance: CGFloat) -> Bool {
+        let frame = node.frame
+        guard frame.insetBy(dx: -tolerance, dy: -tolerance).contains(point) else { return false }
+        let halfWidth = max(frame.width / 2, 0.001)
+        let halfHeight = max(frame.height / 2, 0.001)
+        let dx = abs(point.x - frame.midX)
+        let dy = abs(point.y - frame.midY)
+        switch node.shape {
+        case .text:
+            return true
+        case .rect, .rounded:
+            return !frame.insetBy(dx: tolerance, dy: tolerance).contains(point)
+        case .ellipse:
+            // Scale the point onto the unit circle, then measure how far it is from radius 1.
+            let radius = ((dx / halfWidth) * (dx / halfWidth) + (dy / halfHeight) * (dy / halfHeight)).squareRoot()
+            return abs(radius - 1) * min(halfWidth, halfHeight) <= tolerance
+        case .diamond:
+            let radius = dx / halfWidth + dy / halfHeight
+            return abs(radius - 1) * min(halfWidth, halfHeight) <= tolerance
+        }
+    }
+
+    /// Distance from `point` to the segment between `a` and `b`.
+    public static func distance(from point: CGPoint, toSegment a: CGPoint, _ b: CGPoint) -> CGFloat {
+        let dx = b.x - a.x
+        let dy = b.y - a.y
+        let lengthSquared = dx * dx + dy * dy
+        let t = lengthSquared == 0 ? 0 : min(max(((point.x - a.x) * dx + (point.y - a.y) * dy) / lengthSquared, 0), 1)
+        let nearest = CGPoint(x: a.x + dx * t, y: a.y + dy * t)
+        return ((point.x - nearest.x) * (point.x - nearest.x) + (point.y - nearest.y) * (point.y - nearest.y)).squareRoot()
+    }
+
     /// The visible segment of an edge between two nodes: outline to outline, with a small gap.
     /// Nil when the nodes overlap so much that nothing would be visible.
     public static func segment(from: Node, to: Node, gap: CGFloat = 4) -> (start: CGPoint, end: CGPoint)? {
