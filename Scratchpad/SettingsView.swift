@@ -45,7 +45,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Pencil")
                 } footer: {
-                    Text("The model looks at the canvas once the Pencil has been lifted for this long. Shorter is snappier but can catch a word half written. With finger drawing off, a finger moves shapes instead.")
+                    Text("The model looks at the canvas once the Pencil has been lifted for this long. Shorter is snappier but can catch a word half written. Turn finger drawing off to make the pad Pencil-only; a finger then drags shapes around instead.")
                 }
 
                 Section {

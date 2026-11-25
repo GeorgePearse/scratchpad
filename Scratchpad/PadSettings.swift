@@ -24,7 +24,8 @@ final class PadSettings {
     var instructions: String {
         didSet { defaults.set(instructions, forKey: "instructions") }
     }
-    /// When off, only the Pencil draws and a finger moves shapes.
+    /// When on, a finger draws and erases like the Pencil. When off, only the Pencil does, and a
+    /// finger moves shapes instead.
     var fingerDraws: Bool {
         didSet { defaults.set(fingerDraws, forKey: "fingerDraws") }
     }
@@ -44,18 +45,11 @@ final class PadSettings {
         // arrives as a string) overrides the stored value.
         settleSeconds = defaults.object(forKey: "settleSeconds") == nil ? 0.5 : defaults.double(forKey: "settleSeconds")
         instructions = defaults.string(forKey: "instructions") ?? ""
-        fingerDraws = defaults.object(forKey: "fingerDraws") == nil ? Self.fingerDrawsByDefault : defaults.bool(forKey: "fingerDraws")
+        // On by default: a canvas that ignores your finger looks broken until you find the setting.
+        fingerDraws = defaults.object(forKey: "fingerDraws") == nil ? true : defaults.bool(forKey: "fingerDraws")
         loopEnabled = defaults.object(forKey: "loopEnabled") == nil ? true : defaults.bool(forKey: "loopEnabled")
     }
 
-    /// The simulator has no Pencil, so there a finger (the mouse) has to draw.
-    private static var fingerDrawsByDefault: Bool {
-        #if targetEnvironment(simulator)
-        true
-        #else
-        false
-        #endif
-    }
 }
 
 /// A minimal wrapper for string secrets in the keychain.

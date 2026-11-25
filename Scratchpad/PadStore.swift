@@ -85,6 +85,7 @@ final class PadStore {
     /// The canvas reports a new drawing. Echoes of our own programmatic changes are ignored.
     func canvasInkChanged(_ new: PKDrawing) {
         guard new != drawing else { return }
+        Trace.log("ink changed: \(drawing.strokes.count) -> \(new.strokes.count) strokes")
         pushHistory()
         drawing = new
         strokeCount = new.strokes.count
@@ -93,11 +94,13 @@ final class PadStore {
     }
 
     func penDown() {
+        Trace.log("tool down (\(tool))")
         penIsDown = true
         loop.penDown()
     }
 
     func penUp() {
+        Trace.log("tool up")
         penIsDown = false
         loop.penUp()
         // PencilKit commits the finished stroke just after this callback; let it land before touching the ink.
@@ -141,6 +144,7 @@ final class PadStore {
     /// Removes the shape or connector whose line is under the eraser at `point`.
     func erase(at point: CGPoint) {
         guard let id = diagram.elementID(touchedAt: point, tolerance: 14) else { return }
+        Trace.log("eraser removed \(id)")
         // One undo step per sweep of the eraser, however many things it takes out.
         if !eraseIsRecorded {
             pushHistory()
@@ -204,6 +208,7 @@ final class PadStore {
 
     private func apply(_ ops: [EditOp], base: Diagram, strokesSeen: Set<Date>) {
         let result = diagram.merging(ops, base: base)
+        Trace.log("model replied with \(ops.count) ops, \(result.appliedCount) applied")
 
         var drawing = currentDrawing()
         let strokeCount = drawing.strokes.count

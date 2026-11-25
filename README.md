@@ -12,8 +12,10 @@ Open `Scratchpad.xcodeproj` in Xcode 27 or later.
 
 - **On an iPad:** select the Scratchpad target, set your team under Signing & Capabilities, pick the
   iPad as the destination and run. Then tap the gear and paste an Anthropic API key.
-- **In the simulator:** it runs as is. The simulator has no Pencil, so "Draw with a finger" defaults
-  to on there and the mouse draws.
+- **In the simulator:** it runs as is, and the mouse draws.
+
+If something misbehaves on the device, launch with `-trace YES` to print every touch and loop event:
+`xcrun devicectl device process launch --device <id> --console com.georgepearse.scratchpad -- -trace YES`
 
 To see the whole loop without a Pencil or a key, add `-demo YES` to the scheme's launch arguments.
 That plays a short scripted session against a canned model.
@@ -23,7 +25,8 @@ That plays a short scripted session against a canned model.
 | Input | What it does |
 | --- | --- |
 | Pencil | Draws ink. The model takes a look half a second after you lift it. |
-| Finger | Drags a clean shape. Its connectors follow. |
+| Finger | Draws too, by default. Turn "Draw with a finger" off in settings and a finger drags clean shapes instead, with their connectors following. |
+| Eraser | Rubs out ink, and any shape outline or connector it crosses. |
 | Pencil double-tap | Switches between pen and eraser. |
 | Sparkles button | Turns the model on and off, and shows how long the last pass took. |
 

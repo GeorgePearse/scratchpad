@@ -50,6 +50,39 @@ struct PadCanvas: UIViewRepresentable {
             view.canvas.addInteraction(UIPencilInteraction(delegate: self))
 
             store.ink = self
+
+            if Trace.isOn {
+                // Report every touch that reaches the canvas, and prove the main thread is alive.
+                let probe = UILongPressGestureRecognizer(target: self, action: #selector(traceTouch))
+                probe.minimumPressDuration = 0
+                probe.cancelsTouchesInView = false
+                probe.delaysTouchesEnded = false
+                probe.delegate = self
+                view.canvas.addGestureRecognizer(probe)
+                traceProbe = probe
+                Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
+                    MainActor.assumeIsolated {
+                        guard let self, let view = self.view else { return }
+                        Trace.log("alive; canvas \(Int(view.bounds.width))x\(Int(view.bounds.height)), policy \(view.canvas.drawingPolicy.rawValue), tool \(type(of: view.canvas.tool)), strokes \(view.canvas.drawing.strokes.count), loop \(self.store.loop.phase), error \(self.store.loop.lastError ?? "none")")
+                    }
+                }
+            }
+        }
+
+        private var traceProbe: UIGestureRecognizer?
+        private var traceTouchType = "?"
+
+        func gestureRecognizer(_ recognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            if recognizer === traceProbe {
+                traceTouchType = touch.type == .pencil ? "pencil" : touch.type == .direct ? "finger" : "other(\(touch.type.rawValue))"
+            }
+            return true
+        }
+
+        @objc private func traceTouch(_ probe: UILongPressGestureRecognizer) {
+            guard let view, probe.state == .began || probe.state == .ended else { return }
+            let p = probe.location(in: view)
+            Trace.log("\(traceTouchType) \(probe.state == .began ? "down" : "up") at (\(Int(p.x)), \(Int(p.y)))")
         }
 
         // MARK: InkSurface
@@ -98,6 +131,7 @@ struct PadCanvas: UIViewRepresentable {
         /// The tracker only watches; PencilKit's own recognizer must keep erasing ink alongside it.
         func gestureRecognizer(_ recognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
             recognizer === view?.eraseTracker || other === view?.eraseTracker
+                || recognizer === traceProbe || other === traceProbe
         }
 
         @objc private func handleErase(_ tracker: UILongPressGestureRecognizer) {
