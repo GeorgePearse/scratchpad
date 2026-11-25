@@ -78,6 +78,13 @@ final class DrawingLoopTests: XCTestCase {
         app.buttons["Eraser"].tap()
         draw(on: canvas, from: (0.40, 0.40), to: (0.40, 0.60))
         expect(canvas, toRead: "Empty")
+        XCTAssertTrue(app.buttons["Eraser"].isSelected)
+
+        // And back to the pen to carry on drawing.
+        app.buttons["Pen"].tap()
+        XCTAssertTrue(app.buttons["Pen"].isSelected)
+        draw(on: canvas, from: (0.20, 0.50), to: (0.60, 0.50))
+        expect(canvas, toRead: "0 shapes, 0 connectors, 1 ink stroke")
     }
 
     @MainActor

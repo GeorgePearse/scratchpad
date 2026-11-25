@@ -1,7 +1,7 @@
 import ScratchKit
 import SwiftUI
 
-/// The only chrome on the pad: model status, eraser, undo, clear, settings.
+/// The only chrome on the pad: model status, pen and eraser, undo, clear, settings.
 struct ControlBar: View {
     let store: PadStore
     @Binding var showSettings: Bool
@@ -12,9 +12,16 @@ struct ControlBar: View {
 
             Divider().frame(height: 22).padding(.horizontal, 4)
 
-            BarButton("Eraser", systemImage: "eraser", isOn: store.tool == .eraser) {
-                store.tool = store.tool == .eraser ? .pen : .eraser
+            // Two explicit tools, one always lit, so it is obvious which is active and how to get back.
+            BarButton("Pen", systemImage: "pencil.tip", isOn: store.tool == .pen) {
+                store.tool = .pen
             }
+            BarButton("Eraser", systemImage: "eraser", isOn: store.tool == .eraser) {
+                store.tool = .eraser
+            }
+
+            Divider().frame(height: 22).padding(.horizontal, 4)
+
             BarButton("Undo", systemImage: "arrow.uturn.backward") {
                 store.undo()
             }
@@ -125,7 +132,6 @@ private struct BarButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .symbolVariant(isOn ? .fill : .none)
                 .font(.system(size: 18, weight: .medium))
                 .foregroundStyle(isOn ? Color.accentColor : .primary)
                 .opacity(isEnabled ? 1 : 0.3)

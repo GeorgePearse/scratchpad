@@ -21,7 +21,9 @@ final class PadStore {
     private(set) var diagram = Diagram()
     private(set) var strokeCount = 0
     private(set) var canUndo = false
-    var tool: Tool = .pen
+    var tool: Tool = .pen {
+        didSet { Trace.log("tool is now \(tool)") }
+    }
     /// Stands in for the configured Claude model. The demo and the UI tests set this.
     var modelOverride: (any DiagramModel)?
 
