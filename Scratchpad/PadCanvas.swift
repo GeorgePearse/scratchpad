@@ -44,6 +44,7 @@ struct PadCanvas: UIViewRepresentable {
         private let store: PadStore
         private weak var view: PadView?
         private var movingNodeID: String?
+        private var moveStart: CGPoint = .zero
 
         init(store: PadStore) {
             self.store = store
@@ -91,6 +92,10 @@ struct PadCanvas: UIViewRepresentable {
                 // Where the finger first lands is one corner of the box. A pan only reports itself
                 // after some travel, so the corner has to be caught here.
                 selectionStart = touch.location(in: view)
+            }
+            if recognizer === view?.movePan, let view {
+                // Likewise for dragging a shape: what matters is what the finger landed on.
+                moveStart = touch.location(in: view)
             }
             if recognizer === traceProbe {
                 traceTouchType = touch.type == .pencil ? "pencil" : touch.type == .direct ? "finger" : "other(\(touch.type.rawValue))"
@@ -154,11 +159,8 @@ struct PadCanvas: UIViewRepresentable {
 
         func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
             guard let pan = recognizer as? UIPanGestureRecognizer, pan === view?.movePan, let view else { return true }
-            // By the time a pan is recognised the finger has already travelled; test where it started.
-            let location = pan.location(in: view)
-            let travelled = pan.translation(in: view)
-            let start = CGPoint(x: location.x - travelled.x, y: location.y - travelled.y)
-            movingNodeID = store.beginMove(at: view.worldPoint(start))
+            // By the time a pan is recognised the finger has already travelled; test where it landed.
+            movingNodeID = store.beginMove(at: view.worldPoint(moveStart))
             return movingNodeID != nil
         }
 

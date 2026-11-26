@@ -35,8 +35,13 @@ struct WorkspaceScreen: View {
 
     var body: some View {
         // A new identity per tab gives each pad a fresh canvas view pointed at its own content.
-        PadScreen(workspace: workspace, store: workspace.current)
-            .id(workspace.selectedID)
+        // The page list is a strip the full height of the left edge; the canvas takes the rest.
+        HStack(spacing: 0) {
+            TabBar(workspace: workspace)
+                .ignoresSafeArea()
+            PadScreen(workspace: workspace, store: workspace.current)
+                .id(workspace.selectedID)
+        }
     }
 }
 
@@ -67,19 +72,10 @@ struct PadScreen: View {
             }
 
         }
-        // Tools along the top right; tabs in a column down the left.
+        // Tools along the top right of the canvas.
         .overlay(alignment: .topTrailing) {
             ControlBar(store: store, showSettings: $showSettings)
                 .padding(12)
-        }
-        .overlay(alignment: .topLeading) {
-            GeometryReader { proxy in
-                TabBar(workspace: workspace)
-                    // In a narrow window the tools reach the left edge, so the tabs start below them.
-                    .padding(.top, proxy.size.width < 800 ? 76 : 0)
-                    .frame(maxHeight: proxy.size.height, alignment: .top)
-            }
-            .padding(12)
         }
         .statusBarHidden()
         .persistentSystemOverlays(.hidden)

@@ -162,10 +162,11 @@ final class DrawingLoopTests: XCTestCase {
         sleep(1)
 
         // Now pick the shape up where it is on screen and drop it somewhere else.
+        // A drag loses its first few points to recognition, so look in a wider patch for the label.
         let target = (0.85, 0.88)
-        XCTAssertFalse(hasMarks(canvas, around: target))
+        XCTAssertFalse(hasMarks(canvas, around: target, spread: 2))
         draw(on: canvas, from: landed, to: target)
-        XCTAssertTrue(hasMarks(canvas, around: target), "The shape should follow the finger after a pan")
+        XCTAssertTrue(hasMarks(canvas, around: target, spread: 2), "The shape should follow the finger after a pan")
         XCTAssertFalse(hasMarks(canvas, around: landed))
 
         // Fit brings everything back on screen without changing the content.
@@ -268,11 +269,11 @@ final class DrawingLoopTests: XCTestCase {
 
     /// Whether anything is drawn in a small patch of the canvas, judged against its top-left pixel.
     @MainActor
-    private func hasMarks(_ canvas: XCUIElement, around center: (Double, Double)) -> Bool {
+    private func hasMarks(_ canvas: XCUIElement, around center: (Double, Double), spread: Double = 1) -> Bool {
         guard let image = canvas.screenshot().image.cgImage else { return false }
         let patch = CGRect(
-            x: Double(image.width) * (center.0 - 0.04), y: Double(image.height) * (center.1 - 0.015),
-            width: Double(image.width) * 0.08, height: Double(image.height) * 0.03
+            x: Double(image.width) * (center.0 - 0.04 * spread), y: Double(image.height) * (center.1 - 0.015 * spread),
+            width: Double(image.width) * 0.08 * spread, height: Double(image.height) * 0.03 * spread
         ).integral
         guard let crop = image.cropping(to: patch) else { return false }
 

@@ -1,36 +1,41 @@
 import SwiftUI
 
-/// The column of tabs down the left edge: one chip per pad, and a button for a new one.
+/// The list of pages: a full-height strip down the left edge, with a button for a new page.
 struct TabBar: View {
     let workspace: Workspace
 
     @State private var renaming: Workspace.Tab?
     @State private var newTitle = ""
     @State private var closing: Workspace.Tab?
+    static let width: CGFloat = 148
 
     var body: some View {
-        VStack(spacing: 2) {
-            // Hug the tabs while they fit; scroll once there are too many.
-            ViewThatFits(in: .vertical) {
-                chips.fixedSize()
-                ScrollView(.vertical, showsIndicators: false) { chips }
+        VStack(spacing: 0) {
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 0) {
+                    ForEach(workspace.tabs) { tab in
+                        row(for: tab)
+                    }
+                }
             }
+            .scrollBounceBehavior(.basedOnSize)
 
+            Divider()
             Button {
                 workspace.addTab()
             } label: {
                 Image(systemName: "plus.circle")
-                    .font(.system(size: 22, weight: .regular))
-                    .frame(width: 44, height: 40)
-                    .contentShape(.circle)
+                    .font(.system(size: 24, weight: .regular))
+                    .frame(maxWidth: .infinity, minHeight: 52)
+                    .contentShape(.rect)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("New page")
         }
-        .padding(.horizontal, 4)
-        .padding(.vertical, 6)
-        .fixedSize(horizontal: true, vertical: false)
-        .tabBarBackground()
+        .frame(width: Self.width)
+        .frame(maxHeight: .infinity)
+        .background(.bar)
+        .overlay(alignment: .trailing) { Divider() }
         .alert("Rename tab", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
             TextField("Name", text: $newTitle)
             Button("Rename") {
@@ -51,28 +56,22 @@ struct TabBar: View {
         }
     }
 
-    private var chips: some View {
-        // Leading-aligned, so the titles line up down the column.
-        VStack(alignment: .leading, spacing: 2) {
-            ForEach(workspace.tabs) { tab in
-                chip(for: tab)
-            }
-        }
-    }
-
-    private func chip(for tab: Workspace.Tab) -> some View {
+    private func row(for tab: Workspace.Tab) -> some View {
         let isSelected = tab.id == workspace.selectedID
         return Button {
             workspace.select(tab.id)
         } label: {
+            // The page in view is white on solid accent colour: tinted text on a tinted fill was
+            // too faint to read.
             Text(tab.title)
                 .font(.subheadline.weight(isSelected ? .semibold : .regular))
-                .foregroundStyle(isSelected ? Color.accentColor : .primary)
-                .lineLimit(1)
-                .padding(.horizontal, 12)
-                .frame(minWidth: 44, maxWidth: 170, minHeight: 36, alignment: .leading)
-                .background(isSelected ? Color.accentColor.opacity(0.15) : .clear, in: .capsule)
-                .contentShape(.capsule)
+                .foregroundStyle(isSelected ? Color.white : .primary)
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+                .padding(.horizontal, 14)
+                .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+                .background(isSelected ? Color.accentColor : .clear)
+                .contentShape(.rect)
         }
         .buttonStyle(.plain)
         .contextMenu {
@@ -95,18 +94,6 @@ struct TabBar: View {
             closing = tab
         } else {
             workspace.close(tab.id)
-        }
-    }
-}
-
-private extension View {
-    @ViewBuilder
-    func tabBarBackground() -> some View {
-        if #available(iOS 26.0, *) {
-            glassEffect(.regular, in: .rect(cornerRadius: 24))
-        } else {
-            background(.regularMaterial, in: .rect(cornerRadius: 24))
-                .overlay(RoundedRectangle(cornerRadius: 24).strokeBorder(.separator.opacity(0.6)))
         }
     }
 }
