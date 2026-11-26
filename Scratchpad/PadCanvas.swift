@@ -12,6 +12,8 @@ struct PadCanvas: UIViewRepresentable {
     let document: PadDocument?
     let summary: String
     let tool: PadStore.Tool
+    let penColor: InkColor
+    let highlighterColor: InkColor
     let fingerDraws: Bool
 
     func makeCoordinator() -> Coordinator {
@@ -31,7 +33,7 @@ struct PadCanvas: UIViewRepresentable {
         // turn the ink white and make it vanish on the page.
         view.overrideUserInterfaceStyle = document == nil ? .unspecified : .light
         view.accessibilityValue = summary
-        view.configure(tool: tool, fingerDraws: fingerDraws)
+        view.configure(.init(tool: tool, penColor: penColor, highlighterColor: highlighterColor, fingerDraws: fingerDraws))
     }
 
     @MainActor
@@ -135,7 +137,7 @@ struct PadCanvas: UIViewRepresentable {
         func pencilInteraction(_ interaction: UIPencilInteraction, didReceiveTap tap: UIPencilInteraction.Tap) {
             // Honour the system setting for people who have double-tap switched off.
             guard UIPencilInteraction.preferredTapAction != .ignore else { return }
-            store.tool = store.tool == .pen ? .eraser : .pen
+            store.tool = store.tool == .eraser ? store.lastDrawingTool : .eraser
         }
 
         // MARK: Moving nodes with a finger
@@ -208,7 +210,14 @@ final class PadView: UIView {
     /// Called once, when the view first has a size and can be pointed at the content.
     var onFirstLayout: (() -> Void)?
 
-    private var configuration: (tool: PadStore.Tool, fingerDraws: Bool)?
+    struct Configuration: Equatable {
+        var tool: PadStore.Tool
+        var penColor: InkColor
+        var highlighterColor: InkColor
+        var fingerDraws: Bool
+    }
+
+    private var configuration: Configuration?
     private var hasLaidOut = false
 
     override init(frame: CGRect) {
@@ -303,9 +312,11 @@ final class PadView: UIView {
 
     // MARK: Tools
 
-    func configure(tool: PadStore.Tool, fingerDraws: Bool) {
-        if let configuration, configuration == (tool, fingerDraws) { return }
-        configuration = (tool, fingerDraws)
+    func configure(_ new: Configuration) {
+        guard new != configuration else { return }
+        configuration = new
+        let tool = new.tool
+        let fingerDraws = new.fingerDraws
 
         // With finger drawing on, one finger draws and two fingers pan and pinch. With it off, only
         // the Pencil draws, so one finger is free to pan the canvas and to drag shapes.
@@ -319,8 +330,10 @@ final class PadView: UIView {
 
         switch tool {
         case .pen:
-            // Black adapts by itself: PencilKit shows it as white ink in Dark Mode.
-            canvas.tool = PKInkingTool(.pen, color: .black, width: 4)
+            canvas.tool = PKInkingTool(.pen, color: new.penColor.uiColor, width: 4)
+        case .highlighter:
+            // The marker ink is translucent, so what is underneath stays readable.
+            canvas.tool = PKInkingTool(.marker, color: new.highlighterColor.uiColor, width: 18)
         case .eraser:
             canvas.tool = PKEraserTool(.vector)
         }

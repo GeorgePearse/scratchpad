@@ -19,8 +19,11 @@ protocol InkSurface: AnyObject {
 @Observable
 final class PadStore {
     enum Tool {
-        case pen, eraser
+        case pen, highlighter, eraser
     }
+
+    /// The pen or highlighter used most recently, which is what Pencil double-tap returns to.
+    @ObservationIgnored private(set) var lastDrawingTool: Tool = .pen
 
     private(set) var diagram = Diagram()
     /// A PDF shown on the canvas beneath the diagram and the ink, if one has been imported.
@@ -28,7 +31,10 @@ final class PadStore {
     private(set) var strokeCount = 0
     private(set) var canUndo = false
     var tool: Tool = .pen {
-        didSet { Trace.log("tool is now \(tool)") }
+        didSet {
+            if tool != .eraser { lastDrawingTool = tool }
+            Trace.log("tool is now \(tool)")
+        }
     }
     /// Stands in for the configured Claude model. The demo and the UI tests set this.
     var modelOverride: (any DiagramModel)?

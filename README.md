@@ -26,6 +26,7 @@ That plays a short scripted session against a canned model.
 | --- | --- |
 | Pencil | Draws ink. The model takes a look half a second after you lift it. |
 | Finger | Draws too, by default. Turn "Draw with a finger" off in settings and a finger drags clean shapes instead, with their connectors following. |
+| Pen, highlighter | Tap one to pick it up. Tap it again to choose its colour; each keeps its own. |
 | Eraser | Rubs out ink, and any shape outline or connector it crosses. |
 | Pinch, two-finger drag | Zooms (10% to 500%) and pans. With finger drawing off, one finger pans. |
 | Arrows-in button | Fits everything on the pad into view. |

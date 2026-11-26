@@ -200,6 +200,34 @@ final class DrawingLoopTests: XCTestCase {
         expect(app.otherElements["canvas"], toRead: "0 shapes, 0 connectors, 2 ink strokes")
     }
 
+    @MainActor
+    func testThePenAndHighlighterHaveTheirOwnColours() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-cannedModel", "YES"]
+        app.launch()
+
+        let canvas = app.otherElements["canvas"]
+        XCTAssertTrue(canvas.waitForExistence(timeout: 15))
+        app.buttons["Model"].tap()
+
+        // The pen is selected at launch, so a tap on it opens its palette.
+        XCTAssertTrue(app.buttons["Pen"].isSelected)
+        app.buttons["Pen"].tap()
+        app.buttons["Red"].tap()
+        XCTAssertEqual(app.buttons["Pen"].value as? String, "Red")
+
+        // The first tap on the highlighter picks it up; the second opens its palette.
+        app.buttons["Highlighter"].tap()
+        XCTAssertTrue(app.buttons["Highlighter"].isSelected)
+        app.buttons["Highlighter"].tap()
+        app.buttons["Pink"].tap()
+        XCTAssertEqual(app.buttons["Highlighter"].value as? String, "Pink")
+        XCTAssertEqual(app.buttons["Pen"].value as? String, "Red")
+
+        draw(on: canvas, from: (0.20, 0.50), to: (0.60, 0.50))
+        expect(canvas, toRead: "0 shapes, 0 connectors, 1 ink stroke")
+    }
+
     // MARK: Helpers
 
     /// Whether anything is drawn in a small patch of the canvas, judged against its top-left pixel.

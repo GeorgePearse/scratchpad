@@ -23,6 +23,9 @@ public enum Prompt {
     are background for the user to read and write on. Never erase, redraw, or copy them. Ink drawn \
     on or beside a page is still ink.
 
+    Broad translucent strokes are highlighter. They mark emphasis; leave them as ink unless the \
+    user asks otherwise.
+
     Coordinates are image pixels with the origin at the top left, x to the right and y down.
 
     ## What to do

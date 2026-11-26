@@ -54,6 +54,8 @@ struct PadScreen: View {
                 document: store.document,
                 summary: store.summary,
                 tool: store.tool,
+                penColor: store.settings.penColor,
+                highlighterColor: store.settings.highlighterColor,
                 fingerDraws: store.settings.fingerDraws
             )
             .ignoresSafeArea()

@@ -2,6 +2,7 @@ import Foundation
 import Observation
 import ScratchKit
 import Security
+import UIKit
 
 /// User-adjustable settings. Everything persists in UserDefaults except the API key, which lives in the keychain.
 @MainActor
@@ -24,6 +25,14 @@ final class PadSettings {
     var instructions: String {
         didSet { defaults.set(instructions, forKey: "instructions") }
     }
+    /// The pen's colour.
+    var penColor: InkColor {
+        didSet { defaults.set(penColor.rawValue, forKey: "penColor") }
+    }
+    /// The highlighter's colour. Each drawing tool remembers its own.
+    var highlighterColor: InkColor {
+        didSet { defaults.set(highlighterColor.rawValue, forKey: "highlighterColor") }
+    }
     /// When on, a finger draws and erases like the Pencil. When off, only the Pencil does, and a
     /// finger moves shapes instead.
     var fingerDraws: Bool {
@@ -41,6 +50,8 @@ final class PadSettings {
         let storedModel = defaults.string(forKey: "modelID")
         modelID = storedModel.flatMap(ClaudeModelInfo.named)?.id ?? ClaudeModelInfo.fastest.id
         effort = defaults.string(forKey: "effort").flatMap(ClaudeModel.Effort.init) ?? .low
+        penColor = defaults.string(forKey: "penColor").flatMap(InkColor.init) ?? .ink
+        highlighterColor = defaults.string(forKey: "highlighterColor").flatMap(InkColor.init) ?? .yellow
         // Read through the typed accessors, so a launch argument such as `-fingerDraws NO` (which
         // arrives as a string) overrides the stored value.
         settleSeconds = defaults.object(forKey: "settleSeconds") == nil ? 0.5 : defaults.double(forKey: "settleSeconds")
@@ -50,6 +61,37 @@ final class PadSettings {
         loopEnabled = defaults.object(forKey: "loopEnabled") == nil ? true : defaults.bool(forKey: "loopEnabled")
     }
 
+}
+
+/// A colour the pen or the highlighter can draw in.
+enum InkColor: String, CaseIterable, Identifiable {
+    case ink, gray, red, orange, yellow, green, blue, purple, pink
+
+    var id: String { rawValue }
+
+    /// What the pen offers: dark, saturated colours that read as line work.
+    static let penChoices: [InkColor] = [.ink, .gray, .red, .orange, .green, .blue, .purple]
+    /// What the highlighter offers: bright colours that text stays legible under.
+    static let highlighterChoices: [InkColor] = [.yellow, .green, .blue, .pink, .orange, .purple]
+
+    var name: String {
+        self == .ink ? "Black" : rawValue.capitalized
+    }
+
+    var uiColor: UIColor {
+        switch self {
+        // Plain black is special: PencilKit shows it as white ink in Dark Mode.
+        case .ink: .black
+        case .gray: .systemGray
+        case .red: .systemRed
+        case .orange: .systemOrange
+        case .yellow: .systemYellow
+        case .green: .systemGreen
+        case .blue: .systemBlue
+        case .purple: .systemPurple
+        case .pink: .systemPink
+        }
+    }
 }
 
 /// A minimal wrapper for string secrets in the keychain.

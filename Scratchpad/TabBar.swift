@@ -10,14 +10,11 @@ struct TabBar: View {
 
     var body: some View {
         HStack(spacing: 2) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 2) {
-                    ForEach(workspace.tabs) { tab in
-                        chip(for: tab)
-                    }
-                }
+            // Hug the tabs while they fit; scroll once there are too many.
+            ViewThatFits(in: .horizontal) {
+                chips.fixedSize()
+                ScrollView(.horizontal, showsIndicators: false) { chips }
             }
-            .scrollBounceBehavior(.basedOnSize)
 
             Button {
                 workspace.addTab()
@@ -50,6 +47,14 @@ struct TabBar: View {
             }
         } message: {
             Text("Everything on this pad is deleted. This can't be undone.")
+        }
+    }
+
+    private var chips: some View {
+        HStack(spacing: 2) {
+            ForEach(workspace.tabs) { tab in
+                chip(for: tab)
+            }
         }
     }
 

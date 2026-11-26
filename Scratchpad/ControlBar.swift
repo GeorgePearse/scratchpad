@@ -1,7 +1,7 @@
 import ScratchKit
 import SwiftUI
 
-/// The only chrome on the pad: model status, pen and eraser, undo, clear, settings.
+/// The pad's tools: model status, pen, highlighter and eraser, fit, undo, clear, settings.
 struct ControlBar: View {
     let store: PadStore
     @Binding var showSettings: Bool
@@ -13,9 +13,11 @@ struct ControlBar: View {
             Divider().frame(height: 22).padding(.horizontal, 4)
 
             // Two explicit tools, one always lit, so it is obvious which is active and how to get back.
-            BarButton("Pen", systemImage: "pencil.tip", isOn: store.tool == .pen) {
-                store.tool = .pen
-            }
+            // Tap a drawing tool to pick it up; tap it again to choose its colour.
+            DrawingToolButton(store: store, tool: .pen, title: "Pen", systemImage: "pencil.tip",
+                              choices: InkColor.penChoices, color: Bindable(store.settings).penColor)
+            DrawingToolButton(store: store, tool: .highlighter, title: "Highlighter", systemImage: "highlighter",
+                              choices: InkColor.highlighterChoices, color: Bindable(store.settings).highlighterColor)
             BarButton("Eraser", systemImage: "eraser", isOn: store.tool == .eraser) {
                 store.tool = .eraser
             }
@@ -115,6 +117,75 @@ private struct LoopButton: View {
             let time = seconds.formatted(.number.precision(.fractionLength(1)))
             return ("\(time) s · \(edits) \(edits == 1 ? "edit" : "edits")", "sparkles", .accentColor)
         }
+    }
+}
+
+/// A pen or highlighter button. It carries a dot in the tool's colour, and opens a palette when
+/// tapped while already selected.
+private struct DrawingToolButton: View {
+    let store: PadStore
+    let tool: PadStore.Tool
+    let title: String
+    let systemImage: String
+    let choices: [InkColor]
+    @Binding var color: InkColor
+
+    @State private var showPalette = false
+
+    private var isOn: Bool { store.tool == tool }
+
+    var body: some View {
+        Button {
+            if isOn {
+                showPalette = true
+            } else {
+                store.tool = tool
+            }
+        } label: {
+            VStack(spacing: 2) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundStyle(isOn ? Color.accentColor : .primary)
+                Capsule()
+                    .fill(swatch(color))
+                    .frame(width: 18, height: 4)
+            }
+            .frame(width: 44, height: 44)
+            .background(isOn ? Color.accentColor.opacity(0.15) : .clear, in: .circle)
+            .contentShape(.circle)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .accessibilityValue(color.name)
+        .accessibilityHint(isOn ? "Chooses the colour" : "")
+        .accessibilityAddTraits(isOn ? .isSelected : [])
+        .popover(isPresented: $showPalette) {
+            HStack(spacing: 10) {
+                ForEach(choices) { choice in
+                    Button {
+                        color = choice
+                        showPalette = false
+                    } label: {
+                        Circle()
+                            .fill(swatch(choice))
+                            .frame(width: 34, height: 34)
+                            .overlay(Circle().strokeBorder(.primary, lineWidth: choice == color ? 3 : 0).padding(-4))
+                            .frame(width: 44, height: 44)
+                            .contentShape(.circle)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(choice.name)
+                    .accessibilityAddTraits(choice == color ? .isSelected : [])
+                }
+            }
+            .padding(12)
+            .presentationCompactAdaptation(.popover)
+        }
+    }
+
+    /// Black ink is drawn white in Dark Mode, so its swatch follows the text colour.
+    private func swatch(_ color: InkColor) -> Color {
+        color == .ink ? .primary : Color(uiColor: color.uiColor)
     }
 }
 
