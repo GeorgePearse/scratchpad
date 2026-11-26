@@ -55,6 +55,36 @@ enum DiagramRenderer {
         }
     }
 
+    // MARK: Document pages
+
+    /// Draws the pages of a PDF as white sheets. `cached` may supply a ready-made picture of a page,
+    /// which is far cheaper to draw than the page itself while the canvas is moving.
+    static func drawPages(of document: PadDocument, in context: CGContext, visible: CGRect?, cached: ((Int) -> UIImage?)? = nil) {
+        for (index, frame) in document.frames.enumerated() {
+            if let visible, !frame.insetBy(dx: -4, dy: -4).intersects(visible) { continue }
+            UIColor(white: 0.78, alpha: 1).setFill()
+            UIRectFill(frame.insetBy(dx: -1, dy: -1))
+            UIColor.white.setFill()
+            UIRectFill(frame)
+            if let image = cached?(index) {
+                image.draw(in: frame)
+            } else if let page = document.pdf.page(at: index + 1) {
+                draw(page, in: frame, context: context)
+            }
+        }
+    }
+
+    /// Draws one PDF page into `frame`. PDF space has its origin at the bottom left, so it is flipped.
+    static func draw(_ page: CGPDFPage, in frame: CGRect, context: CGContext) {
+        context.saveGState()
+        context.clip(to: frame)
+        context.translateBy(x: frame.minX, y: frame.maxY)
+        context.scaleBy(x: 1, y: -1)
+        context.concatenate(page.getDrawingTransform(.cropBox, rect: CGRect(origin: .zero, size: frame.size), rotate: 0, preserveAspectRatio: true))
+        context.drawPDFPage(page)
+        context.restoreGState()
+    }
+
     // MARK: Nodes
 
     private static func draw(_ node: Node) {
@@ -247,7 +277,7 @@ struct CanvasSnapshot {
 
     @MainActor
     /// Renders the part of the canvas inside `rect` (canvas points).
-    static func make(diagram: Diagram, drawing: PKDrawing, rect: CGRect, longEdge: CGFloat = 1024) -> CanvasSnapshot? {
+    static func make(diagram: Diagram, drawing: PKDrawing, document: PadDocument? = nil, rect: CGRect, longEdge: CGFloat = 1024) -> CanvasSnapshot? {
         guard rect.width >= 1, rect.height >= 1 else { return nil }
         let scale = min(1, longEdge / max(rect.width, rect.height))
         let pixelSize = CGSize(width: (rect.width * scale).rounded(), height: (rect.height * scale).rounded())
@@ -264,6 +294,7 @@ struct CanvasSnapshot {
                 context.fill(CGRect(origin: .zero, size: pixelSize))
                 context.cgContext.scaleBy(x: scale, y: scale)
                 context.cgContext.translateBy(x: -rect.minX, y: -rect.minY)
+                if let document { DiagramRenderer.drawPages(of: document, in: context.cgContext, visible: rect) }
                 DiagramRenderer.draw(diagram, tagSize: 12 / scale, visible: rect)
                 // Rendered at twice the target density so thin strokes survive the downscale.
                 drawing.image(from: rect, scale: scale * 2).draw(in: rect)

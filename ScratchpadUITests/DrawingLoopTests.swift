@@ -158,6 +158,9 @@ final class DrawingLoopTests: XCTestCase {
         XCTAssertTrue(hasMarks(canvas, around: landed), "The shape should have moved with the canvas")
         XCTAssertEqual(canvas.value as? String, "3 shapes, 2 connectors, 1 ink stroke")
 
+        // Let the canvas finish coasting: a touch during deceleration only stops the scroll.
+        sleep(1)
+
         // Now pick the shape up where it is on screen and drop it somewhere else.
         let target = (0.85, 0.88)
         XCTAssertFalse(hasMarks(canvas, around: target))
@@ -168,6 +171,33 @@ final class DrawingLoopTests: XCTestCase {
         // Fit brings everything back on screen without changing the content.
         app.buttons["Show everything"].tap()
         XCTAssertEqual(canvas.value as? String, "3 shapes, 2 connectors, 1 ink stroke")
+    }
+
+    /// Each tab is its own pad: what is drawn in one stays there.
+    @MainActor
+    func testTabsKeepTheirOwnContent() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-cannedModel", "YES"]
+        app.launch()
+
+        var canvas = app.otherElements["canvas"]
+        XCTAssertTrue(canvas.waitForExistence(timeout: 15))
+        app.buttons["Model"].tap()
+        draw(on: canvas, from: (0.20, 0.50), to: (0.60, 0.50))
+        expect(canvas, toRead: "0 shapes, 0 connectors, 1 ink stroke")
+
+        app.buttons["New tab"].tap()
+        canvas = app.otherElements["canvas"]
+        expect(canvas, toRead: "Empty")
+        XCTAssertTrue(app.buttons["Tab, Pad 2"].isSelected)
+        draw(on: canvas, from: (0.20, 0.40), to: (0.60, 0.40))
+        draw(on: canvas, from: (0.20, 0.60), to: (0.60, 0.60))
+        expect(canvas, toRead: "0 shapes, 0 connectors, 2 ink strokes")
+
+        app.buttons["Tab, Pad 1"].tap()
+        expect(app.otherElements["canvas"], toRead: "0 shapes, 0 connectors, 1 ink stroke")
+        app.buttons["Tab, Pad 2"].tap()
+        expect(app.otherElements["canvas"], toRead: "0 shapes, 0 connectors, 2 ink strokes")
     }
 
     // MARK: Helpers

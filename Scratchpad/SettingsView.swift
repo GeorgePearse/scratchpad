@@ -1,9 +1,13 @@
 import ScratchKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct SettingsView: View {
     @Bindable var settings: PadSettings
+    let store: PadStore
     @Environment(\.dismiss) private var dismiss
+    @State private var isImporting = false
+    @State private var importError: String?
 
     var body: some View {
         NavigationStack {
@@ -49,12 +53,40 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    Button(store.document == nil ? "Import a PDF…" : "Replace the PDF…") {
+                        isImporting = true
+                    }
+                    if let document = store.document {
+                        LabeledContent("On the canvas", value: "\(document.frames.count) \(document.frames.count == 1 ? "page" : "pages")")
+                        Button("Remove the PDF", role: .destructive) {
+                            store.removeDocument()
+                        }
+                    }
+                    if let importError {
+                        Text(importError).foregroundStyle(.red)
+                    }
+                } header: {
+                    Text("Document")
+                } footer: {
+                    Text("The pages are laid out in a column on the canvas, with room all round to write. Your ink and shapes stay when the PDF is replaced or removed.")
+                }
+
+                Section {
                     TextField("For example: keep every box the same size", text: $settings.instructions, axis: .vertical)
                         .lineLimit(3...8)
                 } header: {
                     Text("Standing instructions")
                 } footer: {
                     Text("Sent to the model with every pass.")
+                }
+            }
+            .fileImporter(isPresented: $isImporting, allowedContentTypes: [.pdf]) { result in
+                do {
+                    try store.importDocument(from: result.get())
+                    importError = nil
+                    dismiss()
+                } catch {
+                    importError = "That file could not be opened as a PDF."
                 }
             }
             .navigationTitle("Settings")

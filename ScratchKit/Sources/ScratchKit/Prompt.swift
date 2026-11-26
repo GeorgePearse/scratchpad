@@ -19,6 +19,10 @@ public enum Prompt {
     - Ink: freehand pencil strokes, which is everything else. Ink is how the user talks to you: a \
     rough shape, some handwriting, an arrow, a scribble through something, a written instruction.
 
+    The canvas may also show pages of a document: white sheets of printed text and figures. They \
+    are background for the user to read and write on. Never erase, redraw, or copy them. Ink drawn \
+    on or beside a page is still ink.
+
     Coordinates are image pixels with the origin at the top left, x to the right and y down.
 
     ## What to do

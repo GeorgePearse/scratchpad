@@ -9,6 +9,7 @@ struct PadCanvas: UIViewRepresentable {
     let store: PadStore
     // Passed in as plain values so SwiftUI calls `updateUIView` whenever they change.
     let diagram: Diagram
+    let document: PadDocument?
     let summary: String
     let tool: PadStore.Tool
     let fingerDraws: Bool
@@ -25,6 +26,10 @@ struct PadCanvas: UIViewRepresentable {
 
     func updateUIView(_ view: PadView, context: Context) {
         view.diagramView.diagram = diagram
+        view.diagramView.document = document
+        // PDF pages are white paper. Keep the pad light while one is shown, or Dark Mode would
+        // turn the ink white and make it vanish on the page.
+        view.overrideUserInterfaceStyle = document == nil ? .unspecified : .light
         view.accessibilityValue = summary
         view.configure(tool: tool, fingerDraws: fingerDraws)
     }
@@ -330,8 +335,40 @@ final class DiagramView: UIView {
         }
     }
 
+    var document: PadDocument? {
+        didSet {
+            if document != oldValue {
+                pageImages.removeAllObjects()
+                setNeedsDisplay()
+            }
+        }
+    }
+
     private var zoom: CGFloat = 1
     private var offset: CGPoint = .zero
+    /// Pictures of pages, drawn once and reused while panning and zooming.
+    private let pageImages: NSCache<NSNumber, UIImage> = {
+        let cache = NSCache<NSNumber, UIImage>()
+        cache.countLimit = 8
+        return cache
+    }()
+
+    /// A picture of the page at twice its natural size, which stays sharp up to 200% zoom.
+    private func pageImage(_ index: Int) -> UIImage? {
+        if let image = pageImages.object(forKey: NSNumber(value: index)) { return image }
+        guard let document, let page = document.pdf.page(at: index + 1) else { return nil }
+        let size = document.frames[index].size
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 2
+        format.opaque = true
+        let image = UIGraphicsImageRenderer(size: size, format: format).image { context in
+            UIColor.white.setFill()
+            context.fill(CGRect(origin: .zero, size: size))
+            DiagramRenderer.draw(page, in: CGRect(origin: .zero, size: size), context: context.cgContext)
+        }
+        pageImages.setObject(image, forKey: NSNumber(value: index))
+        return image
+    }
 
     func setViewport(zoom: CGFloat, offset: CGPoint) {
         guard zoom != self.zoom || offset != self.offset else { return }
@@ -363,6 +400,13 @@ final class DiagramView: UIView {
             x: offset.x / zoom, y: offset.y / zoom,
             width: bounds.width / zoom, height: bounds.height / zoom
         )
+        if let document {
+            // Past 200% the picture would blur, so draw the page itself; few are in view by then.
+            let usePictures = zoom <= 2
+            DiagramRenderer.drawPages(of: document, in: context, visible: visible) { [unowned self] index in
+                usePictures ? pageImage(index) : nil
+            }
+        }
         DiagramRenderer.draw(diagram, visible: visible)
     }
 }

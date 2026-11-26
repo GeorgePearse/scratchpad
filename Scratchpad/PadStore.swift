@@ -23,6 +23,8 @@ final class PadStore {
     }
 
     private(set) var diagram = Diagram()
+    /// A PDF shown on the canvas beneath the diagram and the ink, if one has been imported.
+    private(set) var document: PadDocument?
     private(set) var strokeCount = 0
     private(set) var canUndo = false
     var tool: Tool = .pen {
@@ -31,7 +33,10 @@ final class PadStore {
     /// Stands in for the configured Claude model. The demo and the UI tests set this.
     var modelOverride: (any DiagramModel)?
 
-    let settings = PadSettings()
+    let id: UUID
+    let settings: PadSettings
+    /// Where this pad keeps its `pad.json` and `document.pdf`.
+    @ObservationIgnored private let folder: URL
     let loop = ModelLoop()
 
     /// The part of the canvas on screen, in canvas points. Empty until the canvas has laid out.
@@ -50,7 +55,7 @@ final class PadStore {
     @ObservationIgnored private var deferredWork: [() -> Void] = []
     @ObservationIgnored private var saveTask: Task<Void, Never>?
 
-    var isBlank: Bool { diagram.isEmpty && strokeCount == 0 }
+    var isBlank: Bool { diagram.isEmpty && strokeCount == 0 && document == nil }
 
     /// True when the loop has nothing to run on until the user supplies a key.
     var needsAPIKey: Bool { modelOverride == nil && settings.apiKey.isEmpty }
@@ -66,7 +71,10 @@ final class PadStore {
         ].joined(separator: ", ")
     }
 
-    init() {
+    init(id: UUID, folder: URL, settings: PadSettings) {
+        self.id = id
+        self.folder = folder
+        self.settings = settings
         load()
         loop.timing = { [settings] in
             ModelLoop.Timing(settle: .seconds(settings.settleSeconds))
@@ -160,13 +168,53 @@ final class PadStore {
 
     // MARK: Whole-pad actions
 
-    /// Brings everything on the pad into view. Does nothing on a blank pad.
-    func showContent(animated: Bool = true) {
+    // MARK: Document
+
+    /// Copies a PDF into the app and lays its pages out on the canvas, clear of what is already there.
+    func importDocument(from url: URL) throws {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        let destination = documentURL
+        try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if FileManager.default.fileExists(atPath: destination.path) {
+            try FileManager.default.removeItem(at: destination)
+        }
+        try FileManager.default.copyItem(at: url, to: destination)
+        document = nil
+        placeDocument(at: nil)
+        saveNow()
+        if let document { ink?.show(document.frames.first ?? document.bounds, animated: true) }
+    }
+
+    func removeDocument() {
+        document = nil
+        try? FileManager.default.removeItem(at: documentURL)
+        saveNow()
+    }
+
+    /// Loads the stored PDF. With no saved position it goes to the right of the existing content,
+    /// or to the middle of an empty canvas.
+    private func placeDocument(at saved: CGPoint?) {
+        let url = documentURL
+        guard FileManager.default.fileExists(atPath: url.path), let size = PadDocument.size(of: url) else { return }
+        var topLeft = saved ?? CGPoint(x: PadView.worldCenter.x - size.width / 2, y: PadView.worldCenter.y - 500)
+        if saved == nil, let content = contentBounds(includingDocument: false) {
+            topLeft = CGPoint(x: content.maxX + 500, y: content.minY)
+        }
+        document = PadDocument(url: url, topLeft: topLeft)
+    }
+
+    private func contentBounds(includingDocument: Bool) -> CGRect? {
         var bounds = diagram.bounds ?? .null
         let inkBounds = currentDrawing().bounds
         if !inkBounds.isNull, !inkBounds.isEmpty { bounds = bounds.union(inkBounds) }
-        guard !bounds.isNull else { return }
-        ink?.show(bounds, animated: animated)
+        if includingDocument, let document { bounds = bounds.union(document.bounds) }
+        return bounds.isNull ? nil : bounds
+    }
+
+    /// Brings everything on the pad into view. Does nothing on a blank pad.
+    func showContent(animated: Bool = true) {
+        if let bounds = contentBounds(includingDocument: true) { ink?.show(bounds, animated: animated) }
     }
 
     func undo() {
@@ -178,7 +226,7 @@ final class PadStore {
     }
 
     func clear() {
-        guard !isBlank else { return }
+        guard !diagram.isEmpty || strokeCount > 0 else { return }
         pushHistory()
         diagram = Diagram()
         setDrawing(PKDrawing())
@@ -211,7 +259,7 @@ final class PadStore {
         let view = viewport
         let inView = diagram.part(in: view)
         guard drawing.strokes.contains(where: { $0.renderBounds.intersects(view) }),
-              let snapshot = CanvasSnapshot.make(diagram: inView, drawing: drawing, rect: view) else { return nil }
+              let snapshot = CanvasSnapshot.make(diagram: inView, drawing: drawing, document: document, rect: view) else { return nil }
 
         // What the model is answering. By the time it replies, the canvas may have moved on.
         let base = diagram
@@ -298,15 +346,24 @@ final class PadStore {
         /// 2 since the canvas became pannable. Files without it were drawn on a fixed page whose
         /// top-left corner was the origin.
         var version: Int?
+        /// Top-left corner of the imported PDF's first page, if there is one.
+        var documentOrigin: CGPoint?
     }
 
-    private static var fileURL: URL {
-        URL.applicationSupportDirectory.appending(path: "pad.json")
+    private var documentURL: URL {
+        folder.appending(path: "document.pdf")
+    }
+
+    private var fileURL: URL {
+        folder.appending(path: "pad.json")
     }
 
     private func load() {
-        guard let data = try? Data(contentsOf: Self.fileURL),
-              let saved = try? JSONDecoder().decode(SavedPad.self, from: data) else { return }
+        guard let data = try? Data(contentsOf: fileURL),
+              let saved = try? JSONDecoder().decode(SavedPad.self, from: data) else {
+            placeDocument(at: nil)
+            return
+        }
         diagram = saved.diagram
         drawing = (try? PKDrawing(data: saved.drawing)) ?? PKDrawing()
         if saved.version == nil {
@@ -316,6 +373,7 @@ final class PadStore {
             drawing = drawing.transformed(using: shift)
         }
         strokeCount = drawing.strokes.count
+        placeDocument(at: saved.documentOrigin)
     }
 
     private func scheduleSave() {
@@ -331,9 +389,10 @@ final class PadStore {
         saveTask?.cancel()
         saveTask = nil
         guard persists else { return }
-        let saved = SavedPad(diagram: diagram, drawing: currentDrawing().dataRepresentation(), version: 2)
+        let saved = SavedPad(diagram: diagram, drawing: currentDrawing().dataRepresentation(), version: 2,
+                             documentOrigin: document?.frames.first?.origin)
         guard let data = try? JSONEncoder().encode(saved) else { return }
-        let url = Self.fileURL
+        let url = fileURL
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? data.write(to: url, options: .atomic)
     }

@@ -29,10 +29,17 @@ That plays a short scripted session against a canned model.
 | Eraser | Rubs out ink, and any shape outline or connector it crosses. |
 | Pinch, two-finger drag | Zooms (10% to 500%) and pans. With finger drawing off, one finger pans. |
 | Arrows-in button | Fits everything on the pad into view. |
+| Tabs | Each tab is its own pad. Tap **+** for a new one; touch and hold a tab to rename or close it. |
 | Pencil double-tap | Switches between pen and eraser. |
 | Sparkles button | Turns the model on and off, and shows how long the last pass took. |
 
 Undo steps back through your strokes and the model's edits alike.
+
+### Reading a PDF on the canvas
+
+Settings ▸ Import a PDF lays the pages out in a column on the current pad, at their natural size,
+with open canvas on every side. Write on the pages or around them. The ink and shapes belong to
+the pad, so they stay if you replace or remove the PDF.
 
 Settings has the model (Haiku 5.5 by default, because it is the fastest), the effort level, how long
 to wait after a stroke, and standing instructions that are sent with every pass.
@@ -107,5 +114,10 @@ ready-made inputs for this.
 - The canvas is large rather than truly infinite: 20,000 points square, about fifteen screens each way.
 - The model only sees what is on screen. Zoomed far out, small ink becomes too small for it to read.
 - Connectors join two shapes; there are no free-floating arrows.
+- A PDF's pages cannot be moved or reordered once placed.
 - The API key is stored in the device keychain and requests go straight from the iPad to Anthropic.
   That suits a personal tool, not something you would ship to other people.
+
+## License
+
+MIT. See [LICENSE](LICENSE).

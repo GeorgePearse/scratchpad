@@ -2,34 +2,56 @@ import SwiftUI
 
 @main
 struct ScratchpadApp: App {
-    @State private var store = PadStore()
+    @State private var workspace = Workspace(scratch: ScratchpadApp.usesScratchStorage)
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
-            PadScreen(store: store)
+            WorkspaceScreen(workspace: workspace)
                 .task {
                     #if DEBUG
-                    await DemoScript.runIfRequested(on: store)
+                    await DemoScript.runIfRequested(on: workspace.current)
                     #endif
                 }
         }
         .onChange(of: scenePhase) { _, phase in
-            if phase != .active { store.saveNow() }
+            if phase != .active { workspace.saveAll() }
         }
+    }
+
+    /// The scripted demo and the UI tests run on throwaway storage, never on real pads.
+    private static var usesScratchStorage: Bool {
+        #if DEBUG
+        UserDefaults.standard.bool(forKey: "demo") || UserDefaults.standard.bool(forKey: "cannedModel")
+        #else
+        false
+        #endif
     }
 }
 
-/// The whole app: a blank page with one small cluster of controls.
+/// The whole app: one pad at a time, with a strip of tabs to move between pads.
+struct WorkspaceScreen: View {
+    let workspace: Workspace
+
+    var body: some View {
+        // A new identity per tab gives each pad a fresh canvas view pointed at its own content.
+        PadScreen(workspace: workspace, store: workspace.current)
+            .id(workspace.selectedID)
+    }
+}
+
+/// One pad: an endless page with two small clusters of controls.
 struct PadScreen: View {
+    let workspace: Workspace
     let store: PadStore
     @State private var showSettings = false
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
+        ZStack {
             PadCanvas(
                 store: store,
                 diagram: store.diagram,
+                document: store.document,
                 summary: store.summary,
                 tool: store.tool,
                 fingerDraws: store.settings.fingerDraws
@@ -40,8 +62,23 @@ struct PadScreen: View {
                 hint
             }
 
-            ControlBar(store: store, showSettings: $showSettings)
-                .padding(12)
+            VStack {
+                // Tabs on the left, tools on the right; they stack when the window is narrow.
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: 12) {
+                        TabBar(workspace: workspace).frame(maxWidth: 420, alignment: .leading)
+                        Spacer(minLength: 0)
+                        ControlBar(store: store, showSettings: $showSettings)
+                    }
+                    VStack(alignment: .trailing, spacing: 8) {
+                        ControlBar(store: store, showSettings: $showSettings)
+                        TabBar(workspace: workspace)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(12)
         }
         .statusBarHidden()
         .persistentSystemOverlays(.hidden)
@@ -49,7 +86,7 @@ struct PadScreen: View {
             // A new key or model should take effect on whatever is waiting.
             store.loop.retry()
         } content: {
-            SettingsView(settings: store.settings)
+            SettingsView(settings: store.settings, store: store)
         }
         .onAppear {
             #if DEBUG

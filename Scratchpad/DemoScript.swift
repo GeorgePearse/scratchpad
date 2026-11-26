@@ -18,7 +18,6 @@ enum DemoScript {
         let scripted = UserDefaults.standard.bool(forKey: "demo")
         guard scripted || UserDefaults.standard.bool(forKey: "cannedModel") else { return }
 
-        store.persists = false
         store.startFresh()
         store.modelOverride = CannedModel()
         store.loop.timing = { ModelLoop.Timing(settle: .milliseconds(300)) }
