@@ -232,3 +232,33 @@ private func box(_ id: String, x: CGFloat = 0, y: CGFloat = 0, label: String = "
         #expect(diagram.node(at: CGPoint(x: 155, y: 30), slop: 10)?.id == "over")
     }
 }
+
+@Suite struct PlacingNotes {
+    let size = CGSize(width: 200, height: 100)
+    let anchor = CGRect(x: 1000, y: 1000, width: 100, height: 50)
+
+    @Test func prefersTheRightWhenItIsFree() {
+        #expect(Placement.origin(for: size, beside: anchor, avoiding: []) == CGPoint(x: 1128, y: 1000))
+    }
+
+    @Test func goesLeftWhenTheRightIsTaken() {
+        let onTheRight = CGRect(x: 1110, y: 900, width: 400, height: 300)
+        #expect(Placement.origin(for: size, beside: anchor, avoiding: [onTheRight]) == CGPoint(x: 772, y: 1000))
+    }
+
+    @Test func leavesAPageForItsNearestMargin() {
+        // The selection sits inside a page, towards its left edge.
+        let page = CGRect(x: 900, y: 500, width: 600, height: 840)
+        let origin = Placement.origin(for: size, beside: anchor, avoiding: [page])
+        let note = CGRect(origin: origin, size: size)
+        #expect(!note.intersects(page))
+        #expect(note.maxX <= page.minX)
+        #expect(origin.y == anchor.minY)
+    }
+
+    @Test func aSecondNoteDoesNotLandOnTheFirst() {
+        let first = CGRect(origin: Placement.origin(for: size, beside: anchor, avoiding: []), size: size)
+        let second = CGRect(origin: Placement.origin(for: size, beside: anchor, avoiding: [first]), size: size)
+        #expect(!second.intersects(first))
+    }
+}

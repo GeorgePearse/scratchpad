@@ -32,6 +32,8 @@ final class PadStore {
     private(set) var document: PadDocument?
     private(set) var strokeCount = 0
     private(set) var canUndo = false
+    /// The shape or note being dragged, which the canvas outlines.
+    private(set) var movingID: String?
     var tool: Tool = .pen {
         didSet {
             if tool == .pen || tool == .highlighter { lastDrawingTool = tool }
@@ -140,6 +142,7 @@ final class PadStore {
     func beginMove(at point: CGPoint) -> String? {
         guard let node = diagram.node(at: point, slop: 10) else { return nil }
         pushHistory()
+        movingID = node.id
         return node.id
     }
 
@@ -153,6 +156,7 @@ final class PadStore {
     }
 
     func endMove() {
+        movingID = nil
         scheduleSave()
     }
 
@@ -160,9 +164,9 @@ final class PadStore {
 
     /// Has the model explain what is inside `region` and pastes the answer onto the canvas beside it.
     func explain(_ region: CGRect) {
-        // The note goes to the right of the selection, level with its top.
         let id = diagram.freeIDs(prefix: "x", count: 1)[0]
-        let origin = CGPoint(x: region.maxX + 28, y: region.minY)
+        // Reserve room for a typical answer, wherever there is space beside the selection.
+        var origin = noteOrigin(for: CGSize(width: 480, height: 170), beside: region, ignoring: id)
         pushHistory()
         setNote(id, at: origin, lines: ["Explaining…"], color: .gray)
 
@@ -187,7 +191,15 @@ final class PadStore {
         Task {
             do {
                 let text = try await explainer.explain(imagePNG: snapshot.png)
-                setNote(id, at: origin, lines: TextLayout.wrap(text, width: 62), color: .standard)
+                let lines = TextLayout.wrap(text, width: 62)
+                // If the user has already dragged the placeholder somewhere, the answer goes there.
+                // Otherwise look again, now that the answer's real size is known.
+                if let current = diagram.node(id)?.frame.origin, current != origin {
+                    origin = current
+                } else {
+                    origin = noteOrigin(for: Self.noteSize(lines), beside: region, ignoring: id)
+                }
+                setNote(id, at: origin, lines: lines, color: .standard)
             } catch {
                 let reason = TextLayout.wrap("Couldn't explain this. \(error.localizedDescription)", width: 62)
                 setNote(id, at: origin, lines: reason, color: .red)
@@ -196,12 +208,23 @@ final class PadStore {
         }
     }
 
+    /// A clear spot beside `region` for a note of `size`: off any PDF page, shape, ink or other note.
+    private func noteOrigin(for size: CGSize, beside region: CGRect, ignoring id: String) -> CGPoint {
+        var obstacles = diagram.nodes.filter { $0.id != id }.map(\.frame)
+        obstacles += currentDrawing().strokes.map(\.renderBounds)
+        obstacles += document?.frames ?? []
+        // The selection itself is never an obstacle; a little air round everything else.
+        obstacles = obstacles.map { $0.insetBy(dx: -10, dy: -10) }
+        return Placement.origin(for: size, beside: region, avoiding: obstacles)
+    }
+
+    private static func noteSize(_ lines: [String]) -> CGSize {
+        CGSize(width: CGFloat(lines.map(\.count).max() ?? 1) * 7.6, height: 23 * CGFloat(max(lines.count, 1)))
+    }
+
     /// Creates or rewrites a note: free text, one line of type per entry.
     private func setNote(_ id: String, at origin: CGPoint, lines: [String], color: NodeColor) {
-        let lineHeight: CGFloat = 23
-        let width = CGFloat(lines.map(\.count).max() ?? 1) * 7.6
-        let node = Node(id: id, shape: .text,
-                        frame: CGRect(origin: origin, size: CGSize(width: width, height: lineHeight * CGFloat(max(lines.count, 1)))),
+        let node = Node(id: id, shape: .text, frame: CGRect(origin: origin, size: Self.noteSize(lines)),
                         label: lines.joined(separator: "\n"), color: color)
         if let index = diagram.nodes.firstIndex(where: { $0.id == id }) {
             diagram.nodes[index] = node

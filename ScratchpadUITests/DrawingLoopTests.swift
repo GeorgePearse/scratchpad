@@ -265,6 +265,33 @@ final class DrawingLoopTests: XCTestCase {
         expect(canvas, toRead: "0 shapes, 0 connectors, 1 ink stroke")
     }
 
+    /// Press and hold on a shape, then drag: it moves, even though a finger normally draws.
+    @MainActor
+    func testPressAndHoldMovesAShapeWithoutDrawing() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-demo", "YES"]
+        app.launch()
+
+        let canvas = app.otherElements["canvas"]
+        XCTAssertTrue(canvas.waitForExistence(timeout: 15))
+        expect(canvas, toRead: "3 shapes, 2 connectors, 1 ink stroke", timeout: 20)
+        app.buttons["Model"].tap()
+
+        // The first shape is centred on (0.20, 0.32). Hold it, then drag it to empty canvas.
+        let target = (0.80, 0.10)
+        XCTAssertFalse(hasMarks(canvas, around: target, spread: 2))
+        let start = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.20, dy: 0.32))
+        let end = canvas.coordinate(withNormalizedOffset: CGVector(dx: target.0, dy: target.1))
+        start.press(forDuration: 0.8, thenDragTo: end)
+
+        XCTAssertTrue(hasMarks(canvas, around: target, spread: 2), "The shape should be where it was dropped")
+        XCTAssertEqual(canvas.value as? String, "3 shapes, 2 connectors, 1 ink stroke", "Lifting must not leave ink")
+
+        // A quick drag from the same kind of spot still draws.
+        draw(on: canvas, from: (0.30, 0.90), to: (0.50, 0.92))
+        expect(canvas, toRead: "3 shapes, 2 connectors, 2 ink strokes")
+    }
+
     // MARK: Helpers
 
     /// Whether anything is drawn in a small patch of the canvas, judged against its top-left pixel.

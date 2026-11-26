@@ -56,6 +56,7 @@ struct PadScreen: View {
             PadCanvas(
                 store: store,
                 diagram: store.diagram,
+                movingID: store.movingID,
                 document: store.document,
                 summary: store.summary,
                 tool: store.tool,

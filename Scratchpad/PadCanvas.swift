@@ -9,6 +9,7 @@ struct PadCanvas: UIViewRepresentable {
     let store: PadStore
     // Passed in as plain values so SwiftUI calls `updateUIView` whenever they change.
     let diagram: Diagram
+    let movingID: String?
     let document: PadDocument?
     let summary: String
     let tool: PadStore.Tool
@@ -30,6 +31,7 @@ struct PadCanvas: UIViewRepresentable {
 
     func updateUIView(_ view: PadView, context: Context) {
         view.diagramView.diagram = diagram
+        view.diagramView.highlightedID = movingID
         view.diagramView.document = document
         // PDF pages are white paper. Keep the pad light while one is shown, or Dark Mode would
         // turn the ink white and make it vanish on the page.
@@ -57,6 +59,8 @@ struct PadCanvas: UIViewRepresentable {
 
             view.movePan.addTarget(self, action: #selector(handleMove))
             view.movePan.delegate = self
+            view.liftPress.addTarget(self, action: #selector(handleLift))
+            view.liftPress.delegate = self
             view.selectPan.addTarget(self, action: #selector(handleSelect))
             view.selectPan.delegate = self
             view.eraseTracker.addTarget(self, action: #selector(handleErase))
@@ -158,6 +162,10 @@ struct PadCanvas: UIViewRepresentable {
         // MARK: Moving nodes with a finger
 
         func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
+            if recognizer === view?.liftPress, let view {
+                // Only a press that lands on a shape or note lifts it; elsewhere, drawing carries on.
+                return store.diagram.node(at: view.worldPoint(recognizer.location(in: view)), slop: 10) != nil
+            }
             guard let pan = recognizer as? UIPanGestureRecognizer, pan === view?.movePan, let view else { return true }
             // By the time a pan is recognised the finger has already travelled; test where it landed.
             movingNodeID = store.beginMove(at: view.worldPoint(moveStart))
@@ -172,6 +180,38 @@ struct PadCanvas: UIViewRepresentable {
                 let zoom = view.canvas.zoomScale
                 store.move(id, by: CGPoint(x: travelled.x / zoom, y: travelled.y / zoom))
                 pan.setTranslation(.zero, in: view)
+            case .ended, .cancelled, .failed:
+                movingNodeID = nil
+                store.endMove()
+            default:
+                break
+            }
+        }
+
+        // MARK: Lifting a shape or note with a long press
+
+        private var liftLast: CGPoint = .zero
+
+        /// Press and hold on a shape or a note, then drag: it works with a finger or the Pencil,
+        /// whichever tool is in hand.
+        @objc private func handleLift(_ press: UILongPressGestureRecognizer) {
+            guard let view else { return }
+            let point = press.location(in: view)
+            switch press.state {
+            case .began:
+                movingNodeID = store.beginMove(at: view.worldPoint(point))
+                liftLast = point
+                // The hold began as the start of a stroke. Cancel it, so lifting leaves no ink behind.
+                let drawing = view.canvas.drawingGestureRecognizer
+                if drawing.isEnabled {
+                    drawing.isEnabled = false
+                    drawing.isEnabled = true
+                }
+            case .changed:
+                guard let id = movingNodeID else { return }
+                let zoom = view.canvas.zoomScale
+                store.move(id, by: CGPoint(x: (point.x - liftLast.x) / zoom, y: (point.y - liftLast.y) / zoom))
+                liftLast = point
             case .ended, .cancelled, .failed:
                 movingNodeID = nil
                 store.endMove()
@@ -211,6 +251,7 @@ struct PadCanvas: UIViewRepresentable {
         /// The tracker only watches; PencilKit's own recognizer must keep erasing ink alongside it.
         func gestureRecognizer(_ recognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
             recognizer === view?.eraseTracker || other === view?.eraseTracker
+                || recognizer === view?.liftPress || other === view?.liftPress
                 || recognizer === traceProbe || other === traceProbe
         }
 
@@ -245,6 +286,8 @@ final class PadView: UIView {
     let movePan = UIPanGestureRecognizer()
     /// Follows the eraser's position, since PencilKit doesn't report where it is erasing.
     let eraseTracker = UILongPressGestureRecognizer()
+    /// Press and hold on a shape or note to pick it up.
+    let liftPress = UILongPressGestureRecognizer()
     /// Drags out the box for the explain tool.
     let selectPan = UIPanGestureRecognizer()
     private let selectionLayer = CAShapeLayer()
@@ -293,6 +336,12 @@ final class PadView: UIView {
         canvas.addGestureRecognizer(movePan)
         // A finger that lands on a shape drags the shape; anywhere else it pans the canvas.
         canvas.panGestureRecognizer.require(toFail: movePan)
+
+        liftPress.minimumPressDuration = 0.3
+        liftPress.allowableMovement = 12
+        canvas.addGestureRecognizer(liftPress)
+        // A lift must win over a one-finger pan of the canvas.
+        canvas.panGestureRecognizer.require(toFail: liftPress)
 
         // While the explain tool is up, one finger or the Pencil drags a selection box; two fingers
         // still pan. A disabled recognizer counts as failed, so this costs nothing otherwise.
@@ -388,6 +437,8 @@ final class PadView: UIView {
         movePan.isEnabled = !fingerDraws && tool != .explain
         // The explain tool takes over the canvas: no ink while a box is being dragged.
         selectPan.isEnabled = tool == .explain
+        // Lifting belongs to the drawing tools; the eraser and the explain box use presses themselves.
+        liftPress.isEnabled = tool == .pen || tool == .highlighter
         canvas.drawingGestureRecognizer.isEnabled = tool != .explain
         // The eraser takes out shapes as well as ink, with whatever is allowed to draw.
         eraseTracker.isEnabled = tool == .eraser
@@ -414,6 +465,13 @@ final class DiagramView: UIView {
     var diagram = Diagram() {
         didSet {
             if diagram != oldValue { setNeedsDisplay() }
+        }
+    }
+
+    /// The element being dragged, drawn with an outline so it is clear what has been picked up.
+    var highlightedID: String? {
+        didSet {
+            if highlightedID != oldValue { setNeedsDisplay() }
         }
     }
 
@@ -490,6 +548,13 @@ final class DiagramView: UIView {
             }
         }
         DiagramRenderer.draw(diagram, visible: visible)
+        if let highlightedID, let node = diagram.node(highlightedID) {
+            let outline = UIBezierPath(roundedRect: node.frame.insetBy(dx: -8, dy: -6), cornerRadius: 8)
+            outline.lineWidth = 2 / zoom
+            outline.setLineDash([6 / zoom, 4 / zoom], count: 2, phase: 0)
+            tintColor.setStroke()
+            outline.stroke()
+        }
     }
 }
 
