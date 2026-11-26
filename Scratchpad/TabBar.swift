@@ -8,6 +8,11 @@ struct TabBar: View {
     @State private var newTitle = ""
     @State private var closing: Workspace.Tab?
     static let width: CGFloat = 148
+    /// A plain grey in both appearances. In Dark Mode the system's bar material is close to black,
+    /// which looked wrong beside a white PDF page.
+    static let panelColor = Color(uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark ? UIColor(white: 0.30, alpha: 1) : UIColor(white: 0.93, alpha: 1)
+    })
 
     var body: some View {
         VStack(spacing: 0) {
@@ -34,7 +39,7 @@ struct TabBar: View {
         }
         .frame(width: Self.width)
         .frame(maxHeight: .infinity)
-        .background(.bar)
+        .background(Self.panelColor)
         .overlay(alignment: .trailing) { Divider() }
         .alert("Rename tab", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
             TextField("Name", text: $newTitle)
