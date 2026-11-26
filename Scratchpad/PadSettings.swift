@@ -33,6 +33,17 @@ final class PadSettings {
     var highlighterColor: InkColor {
         didSet { defaults.set(highlighterColor.rawValue, forKey: "highlighterColor") }
     }
+    /// Stroke widths in points, one per drawing tool.
+    var penWidth: Double {
+        didSet { defaults.set(penWidth, forKey: "penWidth") }
+    }
+    var highlighterWidth: Double {
+        didSet { defaults.set(highlighterWidth, forKey: "highlighterWidth") }
+    }
+    /// The widths each tool offers, thinnest first.
+    static let penWidths: [Double] = [2, 4, 7, 11]
+    static let highlighterWidths: [Double] = [10, 18, 28, 40]
+
     /// When on, a finger draws and erases like the Pencil. When off, only the Pencil does, and a
     /// finger moves shapes instead.
     var fingerDraws: Bool {
@@ -52,6 +63,11 @@ final class PadSettings {
         effort = defaults.string(forKey: "effort").flatMap(ClaudeModel.Effort.init) ?? .low
         penColor = defaults.string(forKey: "penColor").flatMap(InkColor.init) ?? .ink
         highlighterColor = defaults.string(forKey: "highlighterColor").flatMap(InkColor.init) ?? .yellow
+        // Fall back to the default if nothing is stored, or the stored width is no longer offered.
+        let storedPen = UserDefaults.standard.double(forKey: "penWidth")
+        let storedHighlighter = UserDefaults.standard.double(forKey: "highlighterWidth")
+        penWidth = Self.penWidths.contains(storedPen) ? storedPen : 4
+        highlighterWidth = Self.highlighterWidths.contains(storedHighlighter) ? storedHighlighter : 18
         // Read through the typed accessors, so a launch argument such as `-fingerDraws NO` (which
         // arrives as a string) overrides the stored value.
         settleSeconds = defaults.object(forKey: "settleSeconds") == nil ? 0.5 : defaults.double(forKey: "settleSeconds")

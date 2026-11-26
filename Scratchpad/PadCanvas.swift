@@ -14,6 +14,8 @@ struct PadCanvas: UIViewRepresentable {
     let tool: PadStore.Tool
     let penColor: InkColor
     let highlighterColor: InkColor
+    let penWidth: Double
+    let highlighterWidth: Double
     let fingerDraws: Bool
 
     func makeCoordinator() -> Coordinator {
@@ -33,7 +35,8 @@ struct PadCanvas: UIViewRepresentable {
         // turn the ink white and make it vanish on the page.
         view.overrideUserInterfaceStyle = document == nil ? .unspecified : .light
         view.accessibilityValue = summary
-        view.configure(.init(tool: tool, penColor: penColor, highlighterColor: highlighterColor, fingerDraws: fingerDraws))
+        view.configure(.init(tool: tool, penColor: penColor, highlighterColor: highlighterColor,
+                             penWidth: penWidth, highlighterWidth: highlighterWidth, fingerDraws: fingerDraws))
     }
 
     @MainActor
@@ -214,6 +217,8 @@ final class PadView: UIView {
         var tool: PadStore.Tool
         var penColor: InkColor
         var highlighterColor: InkColor
+        var penWidth: Double
+        var highlighterWidth: Double
         var fingerDraws: Bool
     }
 
@@ -330,10 +335,10 @@ final class PadView: UIView {
 
         switch tool {
         case .pen:
-            canvas.tool = PKInkingTool(.pen, color: new.penColor.uiColor, width: 4)
+            canvas.tool = PKInkingTool(.pen, color: new.penColor.uiColor, width: new.penWidth)
         case .highlighter:
             // The marker ink is translucent, so what is underneath stays readable.
-            canvas.tool = PKInkingTool(.marker, color: new.highlighterColor.uiColor, width: 18)
+            canvas.tool = PKInkingTool(.marker, color: new.highlighterColor.uiColor, width: new.highlighterWidth)
         case .eraser:
             canvas.tool = PKEraserTool(.vector)
         }

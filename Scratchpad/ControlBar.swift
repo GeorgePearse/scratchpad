@@ -13,11 +13,13 @@ struct ControlBar: View {
             Divider().frame(height: 22).padding(.horizontal, 4)
 
             // Two explicit tools, one always lit, so it is obvious which is active and how to get back.
-            // Tap a drawing tool to pick it up; tap it again to choose its colour.
+            // Tap a drawing tool to pick it up; tap it again to choose its colour and size.
             DrawingToolButton(store: store, tool: .pen, title: "Pen", systemImage: "pencil.tip",
-                              choices: InkColor.penChoices, color: Bindable(store.settings).penColor)
+                              choices: InkColor.penChoices, color: Bindable(store.settings).penColor,
+                              widths: PadSettings.penWidths, width: Bindable(store.settings).penWidth)
             DrawingToolButton(store: store, tool: .highlighter, title: "Highlighter", systemImage: "highlighter",
-                              choices: InkColor.highlighterChoices, color: Bindable(store.settings).highlighterColor)
+                              choices: InkColor.highlighterChoices, color: Bindable(store.settings).highlighterColor,
+                              widths: PadSettings.highlighterWidths, width: Bindable(store.settings).highlighterWidth)
             BarButton("Eraser", systemImage: "eraser", isOn: store.tool == .eraser) {
                 store.tool = .eraser
             }
@@ -129,6 +131,8 @@ private struct DrawingToolButton: View {
     let systemImage: String
     let choices: [InkColor]
     @Binding var color: InkColor
+    let widths: [Double]
+    @Binding var width: Double
 
     @State private var showPalette = false
 
@@ -157,14 +161,14 @@ private struct DrawingToolButton: View {
         .buttonStyle(.plain)
         .accessibilityLabel(title)
         .accessibilityValue(color.name)
-        .accessibilityHint(isOn ? "Chooses the colour" : "")
+        .accessibilityHint(isOn ? "Chooses the colour and size" : "")
         .accessibilityAddTraits(isOn ? .isSelected : [])
         .popover(isPresented: $showPalette) {
+          VStack(spacing: 6) {
             HStack(spacing: 10) {
                 ForEach(choices) { choice in
                     Button {
                         color = choice
-                        showPalette = false
                     } label: {
                         Circle()
                             .fill(swatch(choice))
@@ -178,9 +182,35 @@ private struct DrawingToolButton: View {
                     .accessibilityAddTraits(choice == color ? .isSelected : [])
                 }
             }
+            Divider()
+
+            // Sizes, thinnest first.
+            HStack(spacing: 10) {
+                ForEach(Array(widths.enumerated()), id: \.element) { index, choice in
+                    Button {
+                        width = choice
+                    } label: {
+                        Circle()
+                            .fill(swatch(color))
+                            .frame(width: dotSize(index), height: dotSize(index))
+                            .frame(width: 44, height: 44)
+                            .background(choice == width ? Color.primary.opacity(0.12) : .clear, in: .circle)
+                            .contentShape(.circle)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Size \(index + 1) of \(widths.count)")
+                    .accessibilityAddTraits(choice == width ? .isSelected : [])
+                }
+            }
+          }
             .padding(12)
             .presentationCompactAdaptation(.popover)
         }
+    }
+
+    /// Dots step evenly from small to large, so the sizes are easy to tell apart at a glance.
+    private func dotSize(_ index: Int) -> CGFloat {
+        8 + CGFloat(index) / CGFloat(max(widths.count - 1, 1)) * 22
     }
 
     /// Black ink is drawn white in Dark Mode, so its swatch follows the text colour.

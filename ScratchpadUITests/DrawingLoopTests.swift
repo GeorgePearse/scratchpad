@@ -210,17 +210,25 @@ final class DrawingLoopTests: XCTestCase {
         XCTAssertTrue(canvas.waitForExistence(timeout: 15))
         app.buttons["Model"].tap()
 
-        // The pen is selected at launch, so a tap on it opens its palette.
+        // The pen is selected at launch, so a tap on it opens its palette: colours, then sizes.
         XCTAssertTrue(app.buttons["Pen"].isSelected)
         app.buttons["Pen"].tap()
         app.buttons["Red"].tap()
+        app.buttons["Size 4 of 4"].tap()
+        XCTAssertTrue(app.buttons["Size 4 of 4"].isSelected)
+        XCTAssertTrue(app.buttons["Red"].isSelected)
+        dismissPalette(in: app)
         XCTAssertEqual(app.buttons["Pen"].value as? String, "Red")
 
         // The first tap on the highlighter picks it up; the second opens its palette.
         app.buttons["Highlighter"].tap()
         XCTAssertTrue(app.buttons["Highlighter"].isSelected)
         app.buttons["Highlighter"].tap()
+        // It has its own size, untouched by the pen's.
+        XCTAssertFalse(app.buttons["Size 4 of 4"].isSelected)
         app.buttons["Pink"].tap()
+        app.buttons["Size 1 of 4"].tap()
+        dismissPalette(in: app)
         XCTAssertEqual(app.buttons["Highlighter"].value as? String, "Pink")
         XCTAssertEqual(app.buttons["Pen"].value as? String, "Red")
 
@@ -252,6 +260,13 @@ final class DrawingLoopTests: XCTestCase {
         }
         let background = Int(pixels[0])
         return stride(from: 0, to: pixels.count, by: 4).contains { abs(Int(pixels[$0]) - background) > 60 }
+    }
+
+    /// Taps outside the palette popover to close it.
+    @MainActor
+    private func dismissPalette(in app: XCUIApplication) {
+        app.otherElements["canvas"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)).tap()
+        XCTAssertTrue(app.buttons["Size 1 of 4"].waitForNonExistence(timeout: 3))
     }
 
     @MainActor
