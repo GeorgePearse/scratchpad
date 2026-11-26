@@ -186,7 +186,7 @@ final class DrawingLoopTests: XCTestCase {
         draw(on: canvas, from: (0.20, 0.50), to: (0.60, 0.50))
         expect(canvas, toRead: "0 shapes, 0 connectors, 1 ink stroke")
 
-        app.buttons["New tab"].tap()
+        app.buttons["New page"].tap()
         canvas = app.otherElements["canvas"]
         expect(canvas, toRead: "Empty")
         XCTAssertTrue(app.buttons["Tab, Pad 2"].isSelected)
@@ -233,6 +233,34 @@ final class DrawingLoopTests: XCTestCase {
         XCTAssertEqual(app.buttons["Pen"].value as? String, "Red")
 
         draw(on: canvas, from: (0.20, 0.50), to: (0.60, 0.50))
+        expect(canvas, toRead: "0 shapes, 0 connectors, 1 ink stroke")
+    }
+
+    /// The explain tool: drag a box, get a note pasted beside it, and return to drawing.
+    @MainActor
+    func testExplainingASelectionPastesANote() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-cannedModel", "YES"]
+        app.launch()
+
+        let canvas = app.otherElements["canvas"]
+        XCTAssertTrue(canvas.waitForExistence(timeout: 15))
+        app.buttons["Model"].tap()
+        draw(on: canvas, from: (0.20, 0.50), to: (0.40, 0.50))
+        expect(canvas, toRead: "0 shapes, 0 connectors, 1 ink stroke")
+
+        app.buttons["Explain"].tap()
+        XCTAssertTrue(app.buttons["Explain"].isSelected)
+        draw(on: canvas, from: (0.15, 0.42), to: (0.45, 0.58))
+
+        // The drag selected; it did not draw. One note has been added, to the right of the box.
+        expect(canvas, toRead: "1 shape, 0 connectors, 1 ink stroke")
+        XCTAssertTrue(app.buttons["Pen"].isSelected, "The pen should come back after one selection")
+        sleep(2)
+        XCTAssertTrue(hasMarks(canvas, around: (0.55, 0.45)), "The explanation should sit beside the selection")
+
+        // Undo takes the note away again.
+        app.buttons["Undo"].tap()
         expect(canvas, toRead: "0 shapes, 0 connectors, 1 ink stroke")
     }
 

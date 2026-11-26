@@ -23,6 +23,10 @@ struct ControlBar: View {
             BarButton("Eraser", systemImage: "eraser", isOn: store.tool == .eraser) {
                 store.tool = .eraser
             }
+            // Drag a box round anything on the canvas and an explanation is pasted beside it.
+            BarButton("Explain", systemImage: "text.viewfinder", isOn: store.tool == .explain) {
+                store.tool = store.tool == .explain ? store.lastDrawingTool : .explain
+            }
 
             Divider().frame(height: 22).padding(.horizontal, 4)
 

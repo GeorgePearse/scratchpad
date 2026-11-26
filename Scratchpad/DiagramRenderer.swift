@@ -277,7 +277,10 @@ struct CanvasSnapshot {
 
     @MainActor
     /// Renders the part of the canvas inside `rect` (canvas points).
-    static func make(diagram: Diagram, drawing: PKDrawing, document: PadDocument? = nil, rect: CGRect, longEdge: CGFloat = 1024) -> CanvasSnapshot? {
+    /// - Parameter tags: Whether to print element ids beside the clean elements, for a model that
+    ///   needs to refer to them.
+    static func make(diagram: Diagram, drawing: PKDrawing, document: PadDocument? = nil, rect: CGRect,
+                     longEdge: CGFloat = 1024, tags: Bool = true) -> CanvasSnapshot? {
         guard rect.width >= 1, rect.height >= 1 else { return nil }
         let scale = min(1, longEdge / max(rect.width, rect.height))
         let pixelSize = CGSize(width: (rect.width * scale).rounded(), height: (rect.height * scale).rounded())
@@ -295,7 +298,7 @@ struct CanvasSnapshot {
                 context.cgContext.scaleBy(x: scale, y: scale)
                 context.cgContext.translateBy(x: -rect.minX, y: -rect.minY)
                 if let document { DiagramRenderer.drawPages(of: document, in: context.cgContext, visible: rect) }
-                DiagramRenderer.draw(diagram, tagSize: 12 / scale, visible: rect)
+                DiagramRenderer.draw(diagram, tagSize: tags ? 12 / scale : nil, visible: rect)
                 // Rendered at twice the target density so thin strokes survive the downscale.
                 drawing.image(from: rect, scale: scale * 2).draw(in: rect)
             }

@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The strip of tabs: one chip per pad, and a button for a new one.
+/// The column of tabs down the left edge: one chip per pad, and a button for a new one.
 struct TabBar: View {
     let workspace: Workspace
 
@@ -9,26 +9,27 @@ struct TabBar: View {
     @State private var closing: Workspace.Tab?
 
     var body: some View {
-        HStack(spacing: 2) {
+        VStack(spacing: 2) {
             // Hug the tabs while they fit; scroll once there are too many.
-            ViewThatFits(in: .horizontal) {
+            ViewThatFits(in: .vertical) {
                 chips.fixedSize()
-                ScrollView(.horizontal, showsIndicators: false) { chips }
+                ScrollView(.vertical, showsIndicators: false) { chips }
             }
 
             Button {
                 workspace.addTab()
             } label: {
-                Image(systemName: "plus")
-                    .font(.system(size: 16, weight: .medium))
-                    .frame(width: 40, height: 44)
+                Image(systemName: "plus.circle")
+                    .font(.system(size: 22, weight: .regular))
+                    .frame(width: 44, height: 40)
                     .contentShape(.circle)
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("New tab")
+            .accessibilityLabel("New page")
         }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 4)
+        .padding(.horizontal, 4)
+        .padding(.vertical, 6)
+        .fixedSize(horizontal: true, vertical: false)
         .tabBarBackground()
         .alert("Rename tab", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
             TextField("Name", text: $newTitle)
@@ -51,7 +52,8 @@ struct TabBar: View {
     }
 
     private var chips: some View {
-        HStack(spacing: 2) {
+        // Leading-aligned, so the titles line up down the column.
+        VStack(alignment: .leading, spacing: 2) {
             ForEach(workspace.tabs) { tab in
                 chip(for: tab)
             }
@@ -68,7 +70,7 @@ struct TabBar: View {
                 .foregroundStyle(isSelected ? Color.accentColor : .primary)
                 .lineLimit(1)
                 .padding(.horizontal, 12)
-                .frame(minWidth: 44, maxWidth: 180, minHeight: 36)
+                .frame(minWidth: 44, maxWidth: 170, minHeight: 36, alignment: .leading)
                 .background(isSelected ? Color.accentColor.opacity(0.15) : .clear, in: .capsule)
                 .contentShape(.capsule)
         }
@@ -101,10 +103,10 @@ private extension View {
     @ViewBuilder
     func tabBarBackground() -> some View {
         if #available(iOS 26.0, *) {
-            glassEffect(.regular, in: .capsule)
+            glassEffect(.regular, in: .rect(cornerRadius: 24))
         } else {
-            background(.regularMaterial, in: .capsule)
-                .overlay(Capsule().strokeBorder(.separator.opacity(0.6)))
+            background(.regularMaterial, in: .rect(cornerRadius: 24))
+                .overlay(RoundedRectangle(cornerRadius: 24).strokeBorder(.separator.opacity(0.6)))
         }
     }
 }

@@ -20,6 +20,8 @@ protocol InkSurface: AnyObject {
 final class PadStore {
     enum Tool {
         case pen, highlighter, eraser
+        /// Drag a box around part of the canvas to have it explained.
+        case explain
     }
 
     /// The pen or highlighter used most recently, which is what Pencil double-tap returns to.
@@ -32,12 +34,14 @@ final class PadStore {
     private(set) var canUndo = false
     var tool: Tool = .pen {
         didSet {
-            if tool != .eraser { lastDrawingTool = tool }
+            if tool == .pen || tool == .highlighter { lastDrawingTool = tool }
             Trace.log("tool is now \(tool)")
         }
     }
     /// Stands in for the configured Claude model. The demo and the UI tests set this.
     var modelOverride: (any DiagramModel)?
+    /// Stands in for Claude when explaining a selection. The demo and the UI tests set this.
+    @ObservationIgnored var explainerOverride: (any RegionExplainer)?
 
     let id: UUID
     let settings: PadSettings
@@ -150,6 +154,61 @@ final class PadStore {
 
     func endMove() {
         scheduleSave()
+    }
+
+    // MARK: Explaining a selection
+
+    /// Has the model explain what is inside `region` and pastes the answer onto the canvas beside it.
+    func explain(_ region: CGRect) {
+        // The note goes to the right of the selection, level with its top.
+        let id = diagram.freeIDs(prefix: "x", count: 1)[0]
+        let origin = CGPoint(x: region.maxX + 28, y: region.minY)
+        pushHistory()
+        setNote(id, at: origin, lines: ["Explaining…"], color: .gray)
+
+        guard let snapshot = CanvasSnapshot.make(diagram: diagram.part(in: region), drawing: currentDrawing(),
+                                                 document: document, rect: region, tags: false) else {
+            setNote(id, at: origin, lines: ["That selection was too small to read."], color: .red)
+            return
+        }
+        let explainer: (any RegionExplainer)?
+        if let explainerOverride {
+            explainer = explainerOverride
+        } else if settings.apiKey.isEmpty {
+            explainer = nil
+        } else {
+            explainer = ClaudeExplainer(apiKey: settings.apiKey, model: settings.modelID, effort: settings.effort)
+        }
+        guard let explainer else {
+            setNote(id, at: origin, lines: ["Add an API key in settings to get explanations."], color: .red)
+            return
+        }
+
+        Task {
+            do {
+                let text = try await explainer.explain(imagePNG: snapshot.png)
+                setNote(id, at: origin, lines: TextLayout.wrap(text, width: 62), color: .standard)
+            } catch {
+                let reason = TextLayout.wrap("Couldn't explain this. \(error.localizedDescription)", width: 62)
+                setNote(id, at: origin, lines: reason, color: .red)
+            }
+            scheduleSave()
+        }
+    }
+
+    /// Creates or rewrites a note: free text, one line of type per entry.
+    private func setNote(_ id: String, at origin: CGPoint, lines: [String], color: NodeColor) {
+        let lineHeight: CGFloat = 23
+        let width = CGFloat(lines.map(\.count).max() ?? 1) * 7.6
+        let node = Node(id: id, shape: .text,
+                        frame: CGRect(origin: origin, size: CGSize(width: width, height: lineHeight * CGFloat(max(lines.count, 1)))),
+                        label: lines.joined(separator: "\n"), color: color)
+        if let index = diagram.nodes.firstIndex(where: { $0.id == id }) {
+            diagram.nodes[index] = node
+        } else if lines == ["Explaining…"] {
+            diagram.nodes.append(node)
+        }
+        // If the placeholder is gone, the user undid or erased it while waiting: leave it gone.
     }
 
     // MARK: Erasing clean elements
@@ -354,6 +413,10 @@ final class PadStore {
         var version: Int?
         /// Top-left corner of the imported PDF's first page, if there is one.
         var documentOrigin: CGPoint?
+        /// Rectangles whose ink should be removed when the pad is next opened. A tool that edits
+        /// a pad file from outside the app sets this, because only the app can rewrite the ink.
+        /// It is applied once and never written back.
+        var eraseInk: [CGRect]?
     }
 
     private var documentURL: URL {
@@ -377,6 +440,10 @@ final class PadStore {
             let shift = CGAffineTransform(translationX: PadView.worldCenter.x, y: PadView.worldCenter.y)
             diagram = diagram.applying(shift)
             drawing = drawing.transformed(using: shift)
+        }
+        if let regions = saved.eraseInk, !regions.isEmpty {
+            drawing.strokes.removeAll { stroke in regions.contains { $0.contains(stroke.renderBounds) } }
+            scheduleSave()
         }
         strokeCount = drawing.strokes.count
         placeDocument(at: saved.documentOrigin)

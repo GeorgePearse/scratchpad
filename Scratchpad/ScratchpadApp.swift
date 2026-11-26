@@ -66,21 +66,18 @@ struct PadScreen: View {
                 hint
             }
 
-            VStack {
-                // Tabs on the left, tools on the right; they stack when the window is narrow.
-                ViewThatFits(in: .horizontal) {
-                    HStack(alignment: .top, spacing: 12) {
-                        TabBar(workspace: workspace).frame(maxWidth: 420, alignment: .leading)
-                        Spacer(minLength: 0)
-                        ControlBar(store: store, showSettings: $showSettings)
-                    }
-                    VStack(alignment: .trailing, spacing: 8) {
-                        ControlBar(store: store, showSettings: $showSettings)
-                        TabBar(workspace: workspace)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-                }
-                Spacer(minLength: 0)
+        }
+        // Tools along the top right; tabs in a column down the left.
+        .overlay(alignment: .topTrailing) {
+            ControlBar(store: store, showSettings: $showSettings)
+                .padding(12)
+        }
+        .overlay(alignment: .topLeading) {
+            GeometryReader { proxy in
+                TabBar(workspace: workspace)
+                    // In a narrow window the tools reach the left edge, so the tabs start below them.
+                    .padding(.top, proxy.size.width < 800 ? 76 : 0)
+                    .frame(maxHeight: proxy.size.height, alignment: .top)
             }
             .padding(12)
         }

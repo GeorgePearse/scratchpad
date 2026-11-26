@@ -165,3 +165,32 @@ private func jsonBody(of request: URLRequest) throws -> [String: Any] {
         }
     }
 }
+
+@Suite struct Explaining {
+    @Test func sendsTheSelectionAndReturnsPlainText() async throws {
+        let body = #"{"content":[{"type":"thinking","thinking":""},{"type":"text","text":"  It is a loss function.\n"}],"stop_reason":"end_turn"}"#
+        let explainer = ClaudeExplainer(apiKey: "test-key", model: "claude-opus-5-5") { request in
+            let sent = try jsonBody(of: request)
+            #expect(sent["model"] as? String == "claude-opus-5-5")
+            #expect(sent["fallbacks"] as? String == "default")
+            #expect((sent["output_config"] as? [String: Any])?["format"] == nil)
+            let content = try #require((sent["messages"] as? [[String: Any]])?.first?["content"] as? [[String: Any]])
+            #expect(content.first?["type"] as? String == "image")
+            return (Data(body.utf8), response(200))
+        }
+        #expect(try await explainer.explain(imagePNG: Data([1, 2, 3])) == "It is a loss function.")
+    }
+
+    @Test func passesFailuresThrough() async {
+        let error = #"{"type":"error","error":{"type":"x","message":"credit balance is too low"}}"#
+        let explainer = ClaudeExplainer(apiKey: "k") { _ in (Data(error.utf8), response(400)) }
+        await #expect(throws: ModelError.rejected(status: 400, message: "credit balance is too low")) {
+            try await explainer.explain(imagePNG: Data())
+        }
+    }
+
+    @Test func wrapsTextAndKeepsParagraphs() {
+        let lines = TextLayout.wrap("one two three four\n\n\nfive six", width: 9)
+        #expect(lines == ["one two", "three", "four", "", "five six"])
+    }
+}

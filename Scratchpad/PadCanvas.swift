@@ -56,6 +56,8 @@ struct PadCanvas: UIViewRepresentable {
 
             view.movePan.addTarget(self, action: #selector(handleMove))
             view.movePan.delegate = self
+            view.selectPan.addTarget(self, action: #selector(handleSelect))
+            view.selectPan.delegate = self
             view.eraseTracker.addTarget(self, action: #selector(handleErase))
             view.eraseTracker.delegate = self
             view.canvas.addInteraction(UIPencilInteraction(delegate: self))
@@ -85,6 +87,11 @@ struct PadCanvas: UIViewRepresentable {
         private var traceTouchType = "?"
 
         func gestureRecognizer(_ recognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            if recognizer === view?.selectPan, let view {
+                // Where the finger first lands is one corner of the box. A pan only reports itself
+                // after some travel, so the corner has to be caught here.
+                selectionStart = touch.location(in: view)
+            }
             if recognizer === traceProbe {
                 traceTouchType = touch.type == .pencil ? "pencil" : touch.type == .direct ? "finger" : "other(\(touch.type.rawValue))"
             }
@@ -171,6 +178,32 @@ struct PadCanvas: UIViewRepresentable {
             }
         }
 
+        // MARK: Selecting a region to explain
+
+        private var selectionStart: CGPoint = .zero
+
+        @objc private func handleSelect(_ pan: UIPanGestureRecognizer) {
+            guard let view else { return }
+            let point = pan.location(in: view)
+            switch pan.state {
+            case .began, .changed:
+                view.showSelection(CGRect(from: selectionStart, to: point))
+            case .ended:
+                view.showSelection(nil)
+                let a = view.worldPoint(selectionStart)
+                let b = view.worldPoint(point)
+                let region = CGRect(from: a, to: b)
+                // One selection per pick-up of the tool, then back to drawing.
+                store.tool = store.lastDrawingTool
+                // Ignore a stray tap or a sliver; it would only produce a useless note.
+                if region.width * view.canvas.zoomScale > 24, region.height * view.canvas.zoomScale > 24 {
+                    store.explain(region)
+                }
+            default:
+                view.showSelection(nil)
+            }
+        }
+
         // MARK: Erasing shapes
 
         /// The tracker only watches; PencilKit's own recognizer must keep erasing ink alongside it.
@@ -210,6 +243,9 @@ final class PadView: UIView {
     let movePan = UIPanGestureRecognizer()
     /// Follows the eraser's position, since PencilKit doesn't report where it is erasing.
     let eraseTracker = UILongPressGestureRecognizer()
+    /// Drags out the box for the explain tool.
+    let selectPan = UIPanGestureRecognizer()
+    private let selectionLayer = CAShapeLayer()
     /// Called once, when the view first has a size and can be pointed at the content.
     var onFirstLayout: (() -> Void)?
 
@@ -255,6 +291,18 @@ final class PadView: UIView {
         canvas.addGestureRecognizer(movePan)
         // A finger that lands on a shape drags the shape; anywhere else it pans the canvas.
         canvas.panGestureRecognizer.require(toFail: movePan)
+
+        // While the explain tool is up, one finger or the Pencil drags a selection box; two fingers
+        // still pan. A disabled recognizer counts as failed, so this costs nothing otherwise.
+        selectPan.maximumNumberOfTouches = 1
+        selectPan.isEnabled = false
+        canvas.addGestureRecognizer(selectPan)
+        canvas.panGestureRecognizer.require(toFail: selectPan)
+        selectionLayer.fillColor = UIColor.tintColor.withAlphaComponent(0.12).cgColor
+        selectionLayer.strokeColor = UIColor.tintColor.cgColor
+        selectionLayer.lineWidth = 2
+        selectionLayer.lineDashPattern = [7, 5]
+        layer.addSublayer(selectionLayer)
 
         // Zero press duration makes this a plain "where is the touch" tracker.
         eraseTracker.minimumPressDuration = 0
@@ -311,6 +359,15 @@ final class PadView: UIView {
         syncDiagramToViewport()
     }
 
+    /// Draws the selection box, in this view's coordinates, or removes it.
+    func showSelection(_ rect: CGRect?) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        selectionLayer.frame = bounds
+        selectionLayer.path = rect.map { UIBezierPath(roundedRect: $0, cornerRadius: 4).cgPath }
+        CATransaction.commit()
+    }
+
     func syncDiagramToViewport() {
         diagramView.setViewport(zoom: canvas.zoomScale, offset: canvas.contentOffset)
     }
@@ -326,7 +383,10 @@ final class PadView: UIView {
         // With finger drawing on, one finger draws and two fingers pan and pinch. With it off, only
         // the Pencil draws, so one finger is free to pan the canvas and to drag shapes.
         canvas.drawingPolicy = fingerDraws ? .anyInput : .pencilOnly
-        movePan.isEnabled = !fingerDraws
+        movePan.isEnabled = !fingerDraws && tool != .explain
+        // The explain tool takes over the canvas: no ink while a box is being dragged.
+        selectPan.isEnabled = tool == .explain
+        canvas.drawingGestureRecognizer.isEnabled = tool != .explain
         // The eraser takes out shapes as well as ink, with whatever is allowed to draw.
         eraseTracker.isEnabled = tool == .eraser
         let pencil = NSNumber(value: UITouch.TouchType.pencil.rawValue)
@@ -341,6 +401,8 @@ final class PadView: UIView {
             canvas.tool = PKInkingTool(.marker, color: new.highlighterColor.uiColor, width: new.highlighterWidth)
         case .eraser:
             canvas.tool = PKEraserTool(.vector)
+        case .explain:
+            break
         }
     }
 }
@@ -426,5 +488,12 @@ final class DiagramView: UIView {
             }
         }
         DiagramRenderer.draw(diagram, visible: visible)
+    }
+}
+
+extension CGRect {
+    /// The rectangle with these two points as opposite corners.
+    init(from a: CGPoint, to b: CGPoint) {
+        self.init(x: min(a.x, b.x), y: min(a.y, b.y), width: abs(a.x - b.x), height: abs(a.y - b.y))
     }
 }

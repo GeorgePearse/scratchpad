@@ -20,6 +20,7 @@ enum DemoScript {
 
         store.startFresh()
         store.modelOverride = CannedModel()
+        store.explainerOverride = CannedExplainer()
         store.loop.timing = { ModelLoop.Timing(settle: .milliseconds(300)) }
         store.loop.setEnabled(true)
         store.loop.retry()
@@ -71,6 +72,15 @@ private extension CGRect {
 private extension CGPoint {
     func `in`(_ area: CGRect) -> CGPoint {
         CGPoint(x: area.minX + x * area.width, y: area.minY + y * area.height)
+    }
+}
+
+/// Explains every selection the same way, after a short pause.
+private struct CannedExplainer: RegionExplainer {
+    func explain(imagePNG: Data) async throws -> String {
+        try? imagePNG.write(to: URL.documentsDirectory.appending(path: "selection.png"))
+        try await Task.sleep(for: .milliseconds(500))
+        return "This is a canned explanation, used when the app runs without a model. A real one would describe what is inside the box you dragged.\n\nIt is long enough to wrap over several lines, so the layout of a pasted note can be checked."
     }
 }
 

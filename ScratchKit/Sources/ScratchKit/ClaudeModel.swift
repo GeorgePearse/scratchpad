@@ -145,7 +145,8 @@ public struct ClaudeModel: DiagramModel {
         let error: Detail
     }
 
-    static func parse(_ data: Data, response: HTTPURLResponse) throws -> ModelOutput {
+    /// The text of a Messages API reply, after checking the HTTP status and why the model stopped.
+    static func replyText(_ data: Data, response: HTTPURLResponse) throws -> (text: String, inputTokens: Int?, outputTokens: Int?) {
         guard response.statusCode == 200 else {
             let detail = (try? JSONDecoder().decode(ErrorReply.self, from: data))?.error
             let message = detail?.message ?? HTTPURLResponse.localizedString(forStatusCode: response.statusCode)
@@ -177,16 +178,17 @@ public struct ClaudeModel: DiagramModel {
 
         // The reply can open with thinking blocks, so pick text blocks by type rather than position.
         let text = reply.content.filter { $0.type == "text" }.compactMap(\.text).joined()
-        guard let json = text.data(using: .utf8), !text.isEmpty else {
+        guard !text.isEmpty else {
             throw ModelError.malformedReply("It contained no text.")
         }
+        return (text, reply.usage?.input_tokens, reply.usage?.output_tokens)
+    }
+
+    static func parse(_ data: Data, response: HTTPURLResponse) throws -> ModelOutput {
+        let reply = try replyText(data, response: response)
         do {
-            let batch = try JSONDecoder().decode(EditBatch.self, from: json)
-            return ModelOutput(
-                ops: batch.ops,
-                inputTokens: reply.usage?.input_tokens,
-                outputTokens: reply.usage?.output_tokens
-            )
+            let batch = try JSONDecoder().decode(EditBatch.self, from: Data(reply.text.utf8))
+            return ModelOutput(ops: batch.ops, inputTokens: reply.inputTokens, outputTokens: reply.outputTokens)
         } catch {
             throw ModelError.malformedReply("It was not the expected JSON.")
         }

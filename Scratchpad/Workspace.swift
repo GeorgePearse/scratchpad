@@ -37,6 +37,7 @@ final class Workspace {
            let index = try? JSONDecoder().decode(Index.self, from: data), !index.tabs.isEmpty {
             tabs = index.tabs
             selectedID = index.tabs.contains { $0.id == index.selected } ? index.selected : index.tabs[0].id
+            removeOrphanedFolders()
         } else {
             // First run with tabs: the single pad from earlier versions becomes the first tab.
             let first = Tab(id: UUID(), title: "Pad 1")
@@ -113,6 +114,16 @@ final class Workspace {
         stores[id] = nil
         try? FileManager.default.removeItem(at: folder(for: id))
         saveIndex()
+    }
+
+    /// Deletes pad folders that no tab points to, left behind if a close was interrupted or the
+    /// index was edited from outside.
+    private func removeOrphanedFolders() {
+        let known = Set(tabs.map(\.id.uuidString))
+        let folders = (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []
+        for folder in folders where UUID(uuidString: folder.lastPathComponent) != nil && !known.contains(folder.lastPathComponent) {
+            try? FileManager.default.removeItem(at: folder)
+        }
     }
 
     // MARK: Saving

@@ -28,9 +28,10 @@ That plays a short scripted session against a canned model.
 | Finger | Draws too, by default. Turn "Draw with a finger" off in settings and a finger drags clean shapes instead, with their connectors following. |
 | Pen, highlighter | Tap one to pick it up. Tap it again to choose its colour and size; each keeps its own. |
 | Eraser | Rubs out ink, and any shape outline or connector it crosses. |
+| Explain | Drag a box round anything: a paragraph of a PDF, a figure, your own notes. An explanation is pasted beside it. |
 | Pinch, two-finger drag | Zooms (10% to 500%) and pans. With finger drawing off, one finger pans. |
 | Arrows-in button | Fits everything on the pad into view. |
-| Tabs | Each tab is its own pad. Tap **+** for a new one; touch and hold a tab to rename or close it. |
+| Tabs | A column down the left edge. Each tab is its own pad. Tap the circled **+** at the bottom for a new one; touch and hold a tab to rename or close it. |
 | Pencil double-tap | Switches between pen and eraser. |
 | Sparkles button | Turns the model on and off, and shows how long the last pass took. |
 
